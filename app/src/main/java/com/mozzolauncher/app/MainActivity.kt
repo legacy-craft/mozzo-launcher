@@ -3,6 +3,7 @@ package com.mozzolauncher.app
 import android.app.Activity
 import android.app.AlertDialog
 import android.appwidget.AppWidgetHost
+import android.appwidget.AppWidgetHostView
 import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProviderInfo
 import android.content.BroadcastReceiver
@@ -12,6 +13,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.content.pm.ResolveInfo
+import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
@@ -35,6 +37,7 @@ import android.text.TextUtils
 import android.text.TextWatcher
 import android.text.format.DateFormat
 import android.util.Base64
+import android.util.SizeF
 import android.view.GestureDetector
 import android.view.Gravity
 import android.view.HapticFeedbackConstants
@@ -140,8 +143,11 @@ class MainActivity : Activity() {
     private lateinit var appWidgetManager: AppWidgetManager
     private lateinit var appWidgetHost: AppWidgetHost
     private val widgetEntries = mutableListOf<WidgetEntry>()
+    private val widgetCellViews = mutableMapOf<Int, FrameLayout>()
+    private val widgetHostViews = mutableMapOf<Int, AppWidgetHostView>()
     private var pendingWidgetId: Int = -1
     private var settingsDialog: AlertDialog? = null
+    private var secondaryDialog: AlertDialog? = null
     private var insetTop = 0
     private var insetBottom = 0
     private var insetLeft = 0
@@ -280,6 +286,14 @@ class MainActivity : Activity() {
         }
     }
 
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        applyDockSide(prefs.getString("dock_side", "left") ?: "left")
+        if (!prefs.getBoolean("has_custom_wallpaper", false)) {
+            applySavedWallpaper()
+        }
+    }
+
     override fun onResume() {
         super.onResume()
         refreshClockFormat()
@@ -295,6 +309,7 @@ class MainActivity : Activity() {
                 return
             }
         }
+        secondaryDialog?.dismiss()
         settingsDialog?.dismiss()
         if (drawerPanel.visibility == View.VISIBLE) {
             closeDrawer()
@@ -329,7 +344,12 @@ class MainActivity : Activity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        secondaryDialog?.dismiss()
+        settingsDialog?.dismiss()
+        secondaryDialog = null
         settingsDialog = null
+        widgetCellViews.clear()
+        widgetHostViews.clear()
         try { unregisterReceiver(packageReceiver) } catch (_: Exception) {}
         try { unregisterReceiver(shortcutReceiver) } catch (_: Exception) {}
     }
@@ -355,7 +375,7 @@ class MainActivity : Activity() {
                 }
             }
         }
-        WindowCompat.getInsetsController(window, window.decorView)?.apply {
+        WindowCompat.getInsetsController(window, window.decorView).apply {
             isAppearanceLightStatusBars = false
             isAppearanceLightNavigationBars = false
         }
@@ -408,15 +428,33 @@ class MainActivity : Activity() {
     }
 
     private fun focusDrawerButtonOnHome() {
-        if (drawerPanel.visibility != View.VISIBLE && settingsDialog?.isShowing != true) {
+        if (drawerPanel.visibility != View.VISIBLE &&
+            settingsDialog?.isShowing != true &&
+            secondaryDialog?.isShowing != true
+        ) {
             btnDrawerMozzo.visibility = View.VISIBLE
             btnDrawerMozzo.isFocusable = true
             btnDrawerMozzo.post {
-                if (drawerPanel.visibility != View.VISIBLE && settingsDialog?.isShowing != true) {
+                if (drawerPanel.visibility != View.VISIBLE &&
+                    settingsDialog?.isShowing != true &&
+                    secondaryDialog?.isShowing != true
+                ) {
                     btnDrawerMozzo.requestFocus()
                 }
             }
         }
+    }
+
+    private fun trackSecondaryDialog(dialog: AlertDialog, onDismissExtra: (() -> Unit)? = null) {
+        secondaryDialog?.dismiss()
+        secondaryDialog = dialog
+        dialog.setOnDismissListener {
+            if (secondaryDialog === dialog) {
+                secondaryDialog = null
+            }
+            onDismissExtra?.invoke()
+        }
+        dialog.show()
     }
 
     private fun refreshClockFormat() {
@@ -516,35 +554,38 @@ class MainActivity : Activity() {
         })
 
         appsGridView.setOnItemClickListener { _, _, position, _ ->
-            launchApp(filteredApps[position])
+            val app = filteredApps.getOrNull(position) ?: return@setOnItemClickListener
+            launchApp(app)
             closeDrawer()
         }
 
         appsGridView.setOnItemLongClickListener { _, _, position, _ ->
+            val app = filteredApps.getOrNull(position) ?: return@setOnItemLongClickListener false
             triggerHaptic()
-            showAppOptionsDialog(filteredApps[position])
+            showAppOptionsDialog(app)
             true
         }
 
         settingsResultsList.setOnItemClickListener { _, _, position, _ ->
-            val setting = filteredSettings[position]
+            val setting = filteredSettings.getOrNull(position) ?: return@setOnItemClickListener
             openSettingAction(setting.action)
             closeDrawer()
         }
 
         settingsResultsList.setOnItemLongClickListener { _, _, position, _ ->
+            val setting = filteredSettings.getOrNull(position) ?: return@setOnItemLongClickListener false
             triggerHaptic()
-            val setting = filteredSettings[position]
             val token = "setting:${setting.title}|${setting.action}"
             val favorites = getDockFavorites()
             val isFav = favorites.contains(token)
             val label = if (isFav) getString(R.string.dock_remove) else getString(R.string.dock_add)
-            AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+            val dlg = AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
                 .setTitle(getString(R.string.setting_dialog_fmt, setting.title))
                 .setItems(arrayOf(label)) { _, _ ->
                     toggleDockFavorite(token)
                 }
-                .show()
+                .create()
+            trackSecondaryDialog(dlg)
             true
         }
     }
@@ -588,82 +629,146 @@ class MainActivity : Activity() {
         rebuildWidgetsUI()
     }
 
-    private fun rebuildWidgetsUI() {
-        widgetsContainer.removeAllViews()
+    private fun notifyWidgetSize(hostView: AppWidgetHostView, heightDp: Int) {
+        val density = resources.displayMetrics.density.coerceAtLeast(1f)
+        val colW = homeCenterColumn.layoutParams?.width ?: 0
+        val widthPx = when {
+            widgetsContainer.width > 0 -> widgetsContainer.width
+            colW > 0 -> colW
+            else -> (resources.displayMetrics.widthPixels - dp(120)).coerceAtLeast(dp(180))
+        }
+        val widthDp = (widthPx / density).toInt().coerceAtLeast(120)
+        val safeHeightDp = heightDp.coerceAtLeast(60)
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                hostView.updateAppWidgetSize(
+                    Bundle(),
+                    listOf(SizeF(widthDp.toFloat(), safeHeightDp.toFloat()))
+                )
+            } else {
+                @Suppress("DEPRECATION")
+                hostView.updateAppWidgetSize(null, widthDp, safeHeightDp, widthDp, safeHeightDp)
+            }
+        } catch (_: Exception) { }
+    }
+
+    private fun syncWidgetFocusAndSizes() {
         val dockSide = prefs.getString("dock_side", "left") ?: "left"
-        for (index in widgetEntries.indices) {
-            val entry = widgetEntries[index]
-            val info = appWidgetManager.getAppWidgetInfo(entry.id) ?: continue
-            val hostView = try {
-                appWidgetHost.createView(this, entry.id, info).apply {
-                    setAppWidget(entry.id, info)
-                }
-            } catch (_: Exception) {
-                continue
+        for (entry in widgetEntries) {
+            val cell = widgetCellViews[entry.id]
+            if (cell != null) {
+                cell.nextFocusLeftId = if (dockSide == "left") R.id.btnDrawerMozzo else View.NO_ID
+                cell.nextFocusRightId = if (dockSide == "right") R.id.btnDrawerMozzo else View.NO_ID
+            }
+            val host = widgetHostViews[entry.id]
+            if (host != null) {
+                notifyWidgetSize(host, entry.heightDp)
+            }
+        }
+    }
+
+    private fun createWidgetCellWrapper(entry: WidgetEntry, hostView: AppWidgetHostView): FrameLayout {
+        val cellWrapper = object : FrameLayout(this) {
+            private var downX = 0f
+            private var downY = 0f
+            private var triggered = false
+            private val slop = ViewConfiguration.get(context).scaledTouchSlop
+            private val longPressTask = Runnable {
+                triggered = true
+                performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                showWidgetMenuDialog(entry)
             }
 
-            val cellWrapper = object : FrameLayout(this) {
-                private var downX = 0f
-                private var downY = 0f
-                private var triggered = false
-                private val slop = ViewConfiguration.get(context).scaledTouchSlop
-                private val longPressTask = Runnable {
-                    triggered = true
-                    performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
-                    showWidgetMenuDialog(entry)
-                }
-
-                override fun onInterceptTouchEvent(ev: MotionEvent): Boolean {
-                    when (ev.actionMasked) {
-                        MotionEvent.ACTION_DOWN -> {
-                            downX = ev.x
-                            downY = ev.y
-                            triggered = false
-                            postDelayed(longPressTask, ViewConfiguration.getLongPressTimeout().toLong())
-                        }
-                        MotionEvent.ACTION_MOVE -> {
-                            if (Math.abs(ev.x - downX) > slop || Math.abs(ev.y - downY) > slop) {
-                                removeCallbacks(longPressTask)
-                            }
-                        }
-                        MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+            override fun onInterceptTouchEvent(ev: MotionEvent): Boolean {
+                when (ev.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> {
+                        downX = ev.x
+                        downY = ev.y
+                        triggered = false
+                        postDelayed(longPressTask, ViewConfiguration.getLongPressTimeout().toLong())
+                    }
+                    MotionEvent.ACTION_MOVE -> {
+                        if (Math.abs(ev.x - downX) > slop || Math.abs(ev.y - downY) > slop) {
                             removeCallbacks(longPressTask)
                         }
                     }
-                    return triggered
+                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                        removeCallbacks(longPressTask)
+                    }
                 }
+                return triggered
+            }
+        }
+
+        cellWrapper.layoutParams = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            dp(entry.heightDp)
+        ).apply {
+            gravity = Gravity.CENTER_HORIZONTAL
+            topMargin = dp(6)
+            bottomMargin = dp(6)
+        }
+        cellWrapper.isFocusable = true
+        cellWrapper.setBackgroundResource(R.drawable.bg_tv_focus_item)
+        cellWrapper.setOnLongClickListener {
+            triggerHaptic()
+            showWidgetMenuDialog(entry)
+            true
+        }
+
+        val hostLp = FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.MATCH_PARENT
+        ).apply {
+            gravity = Gravity.CENTER
+        }
+        cellWrapper.addView(hostView, hostLp)
+        return cellWrapper
+    }
+
+    private fun rebuildWidgetsUI() {
+        val activeIds = widgetEntries.map { it.id }.toHashSet()
+        val staleIds = widgetCellViews.keys.filter { it !in activeIds }
+        for (staleId in staleIds) {
+            widgetCellViews.remove(staleId)?.let { widgetsContainer.removeView(it) }
+            widgetHostViews.remove(staleId)
+        }
+
+        val dockSide = prefs.getString("dock_side", "left") ?: "left"
+        var uiIndex = 0
+        for (entry in widgetEntries) {
+            var cellWrapper = widgetCellViews[entry.id]
+            var hostView = widgetHostViews[entry.id]
+
+            if (cellWrapper == null || hostView == null) {
+                val info = appWidgetManager.getAppWidgetInfo(entry.id) ?: continue
+                hostView = try {
+                    appWidgetHost.createView(this, entry.id, info).apply {
+                        setAppWidget(entry.id, info)
+                    }
+                } catch (_: Exception) {
+                    continue
+                }
+                cellWrapper = createWidgetCellWrapper(entry, hostView)
+                widgetCellViews[entry.id] = cellWrapper
+                widgetHostViews[entry.id] = hostView
             }
 
-            val cellLp = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                dp(entry.heightDp)
-            ).apply {
-                gravity = Gravity.CENTER_HORIZONTAL
-                topMargin = dp(6)
-                bottomMargin = dp(6)
+            val cellLp = cellWrapper.layoutParams as LinearLayout.LayoutParams
+            val targetH = dp(entry.heightDp)
+            if (cellLp.height != targetH) {
+                cellLp.height = targetH
+                cellWrapper.layoutParams = cellLp
             }
-            cellWrapper.layoutParams = cellLp
-            cellWrapper.isFocusable = true
-            cellWrapper.setBackgroundResource(R.drawable.bg_tv_focus_item)
-            if (dockSide == "left") {
-                cellWrapper.nextFocusLeftId = R.id.btnDrawerMozzo
-            } else if (dockSide == "right") {
-                cellWrapper.nextFocusRightId = R.id.btnDrawerMozzo
-            }
-            cellWrapper.setOnLongClickListener {
-                triggerHaptic()
-                showWidgetMenuDialog(entry)
-                true
-            }
+            cellWrapper.nextFocusLeftId = if (dockSide == "left") R.id.btnDrawerMozzo else View.NO_ID
+            cellWrapper.nextFocusRightId = if (dockSide == "right") R.id.btnDrawerMozzo else View.NO_ID
 
-            val hostLp = FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.MATCH_PARENT
-            ).apply {
-                gravity = Gravity.CENTER
+            if (widgetsContainer.getChildAt(uiIndex) !== cellWrapper) {
+                (cellWrapper.parent as? ViewGroup)?.removeView(cellWrapper)
+                widgetsContainer.addView(cellWrapper, uiIndex)
             }
-            cellWrapper.addView(hostView, hostLp)
-            widgetsContainer.addView(cellWrapper)
+            notifyWidgetSize(hostView, entry.heightDp)
+            uiIndex++
         }
     }
 
@@ -679,7 +784,7 @@ class MainActivity : Activity() {
             getString(R.string.widget_remove)
         )
 
-        AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+        val dlg = AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
             .setTitle(getString(R.string.widget_menu_title))
             .setItems(options) { _, which ->
                 when (which) {
@@ -723,7 +828,8 @@ class MainActivity : Activity() {
                     }
                 }
             }
-            .show()
+            .create()
+        trackSecondaryDialog(dlg)
     }
 
     private fun cleanupPendingWidget() {
@@ -753,7 +859,7 @@ class MainActivity : Activity() {
 
         val sorted = providers.mapNotNull { info ->
             try {
-                val widgetLabel = info.loadLabel(packageManager)?.toString()?.trim().orEmpty()
+                val widgetLabel = info.loadLabel(packageManager).orEmpty().trim()
                 val appLabel = try {
                     val appInfo = packageManager.getApplicationInfo(info.provider.packageName, 0)
                     packageManager.getApplicationLabel(appInfo).toString()
@@ -875,17 +981,16 @@ class MainActivity : Activity() {
         val dialog = AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
             .setView(scroll)
             .setCancelable(true)
-            .setOnDismissListener {
-                if (drawerPanel.visibility != View.VISIBLE && settingsDialog?.isShowing != true) {
-                    setHomeFocusBlocked(false)
-                    focusDrawerButtonOnHome()
-                }
-            }
             .create()
         dialog.setCanceledOnTouchOutside(true)
         dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
         pickerDialog = dialog
-        dialog.show()
+        trackSecondaryDialog(dialog) {
+            if (drawerPanel.visibility != View.VISIBLE && settingsDialog?.isShowing != true) {
+                setHomeFocusBlocked(false)
+                focusDrawerButtonOnHome()
+            }
+        }
     }
 
     private fun startBindSelectedWidget(info: AppWidgetProviderInfo) {
@@ -1223,11 +1328,13 @@ class MainActivity : Activity() {
             .setCancelable(true)
             .setOnDismissListener {
                 settingsDialog = null
-                applyClockVisibility(prefs.getBoolean("show_clock", true))
+                if (drawerPanel.visibility != View.VISIBLE) {
+                    applyClockVisibility(prefs.getBoolean("show_clock", true))
+                }
                 applyDockSide(prefs.getString("dock_side", "left") ?: "left")
                 applyPanelOpacity(prefs.getInt("panel_opacity_pct", 75))
                 appsAdapter.notifyDataSetChanged()
-                if (drawerPanel.visibility != View.VISIBLE) {
+                if (drawerPanel.visibility != View.VISIBLE && secondaryDialog?.isShowing != true) {
                     setHomeFocusBlocked(false)
                     focusDrawerButtonOnHome()
                 }
@@ -1247,7 +1354,11 @@ class MainActivity : Activity() {
                 addCategory(Intent.CATEGORY_OPENABLE)
                 type = "image/*"
             }
-            startActivityForResult(intent, REQ_PICK_WALLPAPER)
+            try {
+                startActivityForResult(intent, REQ_PICK_WALLPAPER)
+            } catch (_: Exception) {
+                Toast.makeText(this, getString(R.string.toast_no_file_picker), Toast.LENGTH_SHORT).show()
+            }
         }
         btnResetWall.setOnClickListener {
             File(filesDir, "custom_wallpaper.img").delete()
@@ -1308,8 +1419,9 @@ class MainActivity : Activity() {
     }
 
     private fun createMozzoWaveBitmap(): Bitmap {
-        val w = 1080
-        val h = 1920
+        val dm = resources.displayMetrics
+        val w = dm.widthPixels.coerceIn(720, 1920)
+        val h = dm.heightPixels.coerceIn(720, 1920)
         val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bmp)
         val paint = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -1378,14 +1490,34 @@ class MainActivity : Activity() {
         return bmp
     }
 
+    private fun decodeSampledBitmap(file: File, maxDim: Int): Bitmap? {
+        return try {
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeFile(file.absolutePath, bounds)
+            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+            var sampleSize = 1
+            while ((bounds.outWidth / sampleSize) > maxDim || (bounds.outHeight / sampleSize) > maxDim) {
+                sampleSize *= 2
+            }
+            val opts = BitmapFactory.Options().apply { inSampleSize = sampleSize }
+            BitmapFactory.decodeFile(file.absolutePath, opts)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     private fun applySavedWallpaper() {
         val destFile = File(filesDir, "custom_wallpaper.img")
         if (prefs.getBoolean("has_custom_wallpaper", false) && destFile.exists()) {
-            wallpaperView.setImageURI(null)
-            wallpaperView.setImageURI(Uri.fromFile(destFile))
-        } else {
-            wallpaperView.setImageBitmap(createMozzoWaveBitmap())
+            val dm = resources.displayMetrics
+            val maxDim = maxOf(dm.widthPixels, dm.heightPixels, 1920).coerceAtMost(2560)
+            val bmp = decodeSampledBitmap(destFile, maxDim)
+            if (bmp != null) {
+                wallpaperView.setImageBitmap(bmp)
+                return
+            }
         }
+        wallpaperView.setImageBitmap(createMozzoWaveBitmap())
     }
 
     private fun applyClockVisibility(show: Boolean) {
@@ -1536,6 +1668,7 @@ class MainActivity : Activity() {
         homeCenterColumn.layoutParams = homeLp
         drawerPanel.layoutParams = drawerLp
         appsGridView.columnWidth = dp(prefs.getInt("icon_size_dp", 48) + 34)
+        widgetsContainer.post { syncWidgetFocusAndSizes() }
 
         renderDockFavorites()
     }
@@ -1562,7 +1695,11 @@ class MainActivity : Activity() {
                 }
             }
         } catch (e: Exception) {
-            Toast.makeText(this, "Errore drawer: ${e.message}", Toast.LENGTH_LONG).show()
+            Toast.makeText(
+                this,
+                getString(R.string.toast_drawer_error_fmt, e.message ?: ""),
+                Toast.LENGTH_LONG
+            ).show()
         }
     }
 
@@ -1665,10 +1802,11 @@ class MainActivity : Activity() {
 
     private fun loadInstalledApps() {
         val seenKeys = HashSet<String>()
+        val seenPackages = HashSet<String>()
         val myPkg = packageName
         val loaded = mutableListOf<AppItem>()
 
-        fun queryCategory(cat: String) {
+        fun queryCategory(cat: String, skipIfPackageSeen: Boolean) {
             val intent = Intent(Intent.ACTION_MAIN, null).apply { addCategory(cat) }
             val list: List<ResolveInfo> = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 packageManager.queryIntentActivities(intent, PackageManager.ResolveInfoFlags.of(0))
@@ -1679,17 +1817,19 @@ class MainActivity : Activity() {
             for (ri in list) {
                 val pkg = ri.activityInfo.packageName
                 if (pkg == myPkg) continue
+                if (skipIfPackageSeen && seenPackages.contains(pkg)) continue
                 val act = ri.activityInfo.name
                 val key = "$pkg/$act"
                 if (!seenKeys.add(key)) continue
-                val label = ri.loadLabel(packageManager)?.toString() ?: pkg
+                seenPackages.add(pkg)
+                val label = ri.loadLabel(packageManager).toString().ifEmpty { pkg }
                 val icon = ri.loadIcon(packageManager)
                 loaded.add(AppItem(pkg, label, normalize(label), pkg, act, icon))
             }
         }
 
-        queryCategory(Intent.CATEGORY_LAUNCHER)
-        queryCategory("android.intent.category.LEANBACK_LAUNCHER")
+        queryCategory(Intent.CATEGORY_LAUNCHER, skipIfPackageSeen = false)
+        queryCategory("android.intent.category.LEANBACK_LAUNCHER", skipIfPackageSeen = true)
         loaded.addAll(getSavedWebShortcuts())
 
         val launcherIcon = try {
@@ -1779,12 +1919,20 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun showAppOptionsDialog(app: AppItem) {
-        if (app.isLauncherSettings) {
+    private fun openAppDetails(pkg: String) {
+        try {
             val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                data = Uri.parse("package:$packageName")
+                data = Uri.parse("package:$pkg")
             }
             startActivity(intent)
+        } catch (_: Exception) {
+            Toast.makeText(this, getString(R.string.toast_setting_error), Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun showAppOptionsDialog(app: AppItem) {
+        if (app.isLauncherSettings) {
+            openAppDetails(packageName)
             return
         }
         val favorites = getDockFavorites()
@@ -1797,7 +1945,7 @@ class MainActivity : Activity() {
             arrayOf(favLabel, getString(R.string.app_info))
         }
 
-        AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+        val dlg = AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
             .setTitle(app.label)
             .setItems(options) { _, which ->
                 when (which) {
@@ -1806,15 +1954,13 @@ class MainActivity : Activity() {
                         if (app.shortcutIntentUri != null) {
                             removeWebShortcut(app.packageName)
                         } else {
-                            val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                                data = Uri.parse("package:${app.packageName}")
-                            }
-                            startActivity(intent)
+                            openAppDetails(app.packageName)
                         }
                     }
                 }
             }
-            .show()
+            .create()
+        trackSecondaryDialog(dlg)
     }
 
     private fun getDockFavorites(): MutableList<String> {
@@ -1937,14 +2083,14 @@ class MainActivity : Activity() {
                 return cell
             }
         }
-        dialog = AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+        val created = AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
             .setTitle(getString(R.string.dock_pick_icon_title, title))
             .setView(grid)
-            .setOnDismissListener {
-                focusDrawerButtonOnHome()
-            }
             .create()
-        dialog.show()
+        dialog = created
+        trackSecondaryDialog(created) {
+            focusDrawerButtonOnHome()
+        }
     }
 
     private fun showDockItemMenu(entry: String, title: String, app: AppItem?) {
@@ -1969,20 +2115,16 @@ class MainActivity : Activity() {
 
         if (app != null && !app.isLauncherSettings && app.shortcutIntentUri == null) {
             options.add(getString(R.string.app_info))
-            actions.add {
-                val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                    data = Uri.parse("package:${app.packageName}")
-                }
-                startActivity(intent)
-            }
+            actions.add { openAppDetails(app.packageName) }
         }
 
-        AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+        val dlg = AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
             .setTitle(title)
             .setItems(options.toTypedArray()) { _, which ->
                 actions[which].invoke()
             }
-            .show()
+            .create()
+        trackSecondaryDialog(dlg)
     }
 
     private fun renderDockFavorites() {

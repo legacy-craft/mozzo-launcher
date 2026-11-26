@@ -192,4 +192,74 @@ class ExampleRobolectricTest {
     val recycled = adapter.getView(0, firstView, grid)
     assertTrue(recycled === firstView)
   }
+
+  @Test
+  fun `closing settings while drawer is open keeps clock hidden`() {
+    val controller = Robolectric.buildActivity(MainActivity::class.java).setup()
+    val activity = controller.get()
+    Shadows.shadowOf(Looper.getMainLooper()).idle()
+
+    val btnDrawer = activity.findViewById<ImageButton>(R.id.btnDrawerMozzo)
+    val drawerPanel = activity.findViewById<LinearLayout>(R.id.drawerPanel)
+    val clock = activity.findViewById<LinearLayout>(R.id.clockContainer)
+
+    btnDrawer.performClick()
+    Shadows.shadowOf(Looper.getMainLooper()).idle()
+    assertEquals(View.VISIBLE, drawerPanel.visibility)
+    assertEquals(View.INVISIBLE, clock.visibility)
+
+    activity.onKeyDown(android.view.KeyEvent.KEYCODE_MENU, null)
+    Shadows.shadowOf(Looper.getMainLooper()).idle()
+    val dialog = ShadowAlertDialog.getLatestAlertDialog()
+    fun findTextView(view: View, text: String): TextView? {
+      if (view is TextView && view.text?.toString() == text) return view
+      if (view is ViewGroup) {
+        for (i in 0 until view.childCount) {
+          findTextView(view.getChildAt(i), text)?.let { return it }
+        }
+      }
+      return null
+    }
+    findTextView(dialog.window!!.decorView, activity.getString(R.string.btn_close))!!.performClick()
+    Shadows.shadowOf(Looper.getMainLooper()).idle()
+
+    assertEquals(View.VISIBLE, drawerPanel.visibility)
+    assertEquals(View.INVISIBLE, clock.visibility)
+  }
+
+  @Test
+  fun `home newIntent dismisses secondary dialog and orientation change updates drawer width`() {
+    val controller = Robolectric.buildActivity(MainActivity::class.java).setup()
+    val activity = controller.get()
+    Shadows.shadowOf(Looper.getMainLooper()).idle()
+
+    val btnDrawer = activity.findViewById<ImageButton>(R.id.btnDrawerMozzo)
+    btnDrawer.performClick()
+    Shadows.shadowOf(Looper.getMainLooper()).idle()
+
+    val grid = activity.findViewById<android.widget.GridView>(R.id.appsGridView)
+    val itemView = grid.adapter.getView(0, null, grid)
+    grid.onItemLongClickListener!!.onItemLongClick(grid, itemView, 0, 0)
+    Shadows.shadowOf(Looper.getMainLooper()).idle()
+
+    val secondary = ShadowAlertDialog.getLatestAlertDialog()
+    if (secondary != null) {
+      controller.newIntent(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME))
+      Shadows.shadowOf(Looper.getMainLooper()).idle()
+      assertFalse(secondary.isShowing)
+    }
+
+    val drawer = activity.findViewById<LinearLayout>(R.id.drawerPanel)
+    val beforeW = (drawer.layoutParams as FrameLayout.LayoutParams).width
+    activity.resources.displayMetrics.widthPixels = 1920
+    activity.resources.displayMetrics.heightPixels = 1080
+    val cfg = android.content.res.Configuration(activity.resources.configuration).apply {
+      orientation = android.content.res.Configuration.ORIENTATION_LANDSCAPE
+    }
+    activity.onConfigurationChanged(cfg)
+    Shadows.shadowOf(Looper.getMainLooper()).idle()
+
+    val afterW = (drawer.layoutParams as FrameLayout.LayoutParams).width
+    assertTrue(afterW > beforeW)
+  }
 }

@@ -55,7 +55,6 @@
     <string name="set_keyboard">Language &amp; Keyboard</string>
     <string name="set_about">About Phone</string>
     <string name="set_system">System Settings</string>
-    <string name="accessibility_service_desc">Mozzo Launcher navigation and TV remote helper</string>
     <string name="dock_move_before">Move earlier</string>
     <string name="dock_move_after">Move later</string>
     <string name="dock_change_icon">Change icon</string>
@@ -65,4 +64,6 @@
     <string name="widget_picker_title">Select Widget</string>
     <string name="toast_no_widgets">No widgets available</string>
     <string name="toast_widget_error">Unable to add this widget</string>
+    <string name="toast_no_file_picker">No file picker available on this device</string>
+    <string name="toast_drawer_error_fmt">Drawer error: %1$s</string>
 </resources>

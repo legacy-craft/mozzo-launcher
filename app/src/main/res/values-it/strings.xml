@@ -55,7 +55,6 @@
     <string name="set_keyboard">Lingua e Tastiera</string>
     <string name="set_about">Info sul telefono</string>
     <string name="set_system">Impostazioni di Sistema</string>
-    <string name="accessibility_service_desc">Supporto navigazione e telecomando TV di Mozzo Launcher</string>
     <string name="dock_move_before">Sposta prima</string>
     <string name="dock_move_after">Sposta dopo</string>
     <string name="dock_change_icon">Cambia icona</string>
@@ -65,4 +64,6 @@
     <string name="widget_picker_title">Scegli Widget</string>
     <string name="toast_no_widgets">Nessun widget disponibile</string>
     <string name="toast_widget_error">Impossibile aggiungere questo widget</string>
+    <string name="toast_no_file_picker">Nessun gestore file disponibile su questo dispositivo</string>
+    <string name="toast_drawer_error_fmt">Errore drawer: %1$s</string>
 </resources>
