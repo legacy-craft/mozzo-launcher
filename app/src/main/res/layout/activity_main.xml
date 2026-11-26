@@ -1,0 +1,197 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/rootContainer"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:focusable="false"
+    android:longClickable="true"
+    android:background="#07152B">
+
+    <ImageView
+        android:id="@+id/wallpaperView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:scaleType="centerCrop"
+        android:src="@drawable/bg_default" />
+
+    <LinearLayout
+        android:id="@+id/clockContainer"
+        android:nextFocusDown="@+id/widgetsScrollView"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|center_horizontal"
+        android:layout_marginTop="24dp"
+        android:padding="8dp"
+        android:clickable="true"
+        android:focusable="true"
+        android:background="@drawable/bg_tv_focus_item"
+        android:orientation="vertical"
+        android:gravity="center">
+
+        <TextClock
+            android:id="@+id/clockTimeText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:format24Hour="HH:mm"
+            android:format12Hour="h:mm a"
+            android:textColor="#F8FAFC"
+            android:textSize="48sp"
+            android:textStyle="bold"
+            android:shadowColor="#CC000000"
+            android:shadowDx="0"
+            android:shadowDy="2"
+            android:shadowRadius="8" />
+
+        <TextClock
+            android:id="@+id/clockDateText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:format24Hour="EEEE d MMMM"
+            android:format12Hour="EEEE, MMMM d"
+            android:textColor="#E2E8F0"
+            android:textSize="14sp"
+            android:shadowColor="#CC000000"
+            android:shadowDx="0"
+            android:shadowDy="1"
+            android:shadowRadius="6" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/homeCenterColumn"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_marginStart="84dp"
+        android:layout_marginEnd="24dp"
+        android:orientation="vertical"
+        android:gravity="center">
+
+        <ScrollView
+            android:id="@+id/widgetsScrollView"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:layout_marginTop="8dp"
+            android:layout_marginBottom="16dp"
+            android:fillViewport="true"
+            android:scrollbars="none">
+
+            <LinearLayout
+                android:id="@+id/widgetsContainer"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center"
+                android:orientation="vertical" />
+        </ScrollView>
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/dockContainer"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="start|center_vertical"
+        android:layout_marginVertical="16dp"
+        android:background="@drawable/bg_dock_left"
+        android:orientation="vertical"
+        android:paddingTop="10dp"
+        android:paddingBottom="10dp"
+        android:paddingStart="8dp"
+        android:paddingEnd="10dp"
+        android:gravity="center">
+
+        <ScrollView
+            android:layout_width="wrap_content"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:scrollbars="none">
+
+            <LinearLayout
+                android:id="@+id/dockFavoritesContainer"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:gravity="center" />
+        </ScrollView>
+
+        <ImageButton
+            android:id="@+id/btnDrawerMozzo"
+            android:focusable="true"
+            android:background="@drawable/bg_tv_focus_item"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:padding="7dp"
+            android:scaleType="fitCenter"
+            android:src="@drawable/ic_drawer_mozzo"
+            android:contentDescription="@string/all_apps" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/drawerPanel"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_marginStart="76dp"
+        android:layout_marginEnd="16dp"
+        android:layout_marginVertical="16dp"
+        android:background="@drawable/bg_drawer_panel"
+        android:orientation="vertical"
+        android:padding="14dp"
+        android:clickable="true"
+        android:visibility="gone">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="44dp"
+            android:background="@drawable/bg_search_box"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingHorizontal="12dp">
+
+            <EditText
+                android:id="@+id/searchInput"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:background="@null"
+                android:hint="@string/search_hint"
+                android:inputType="text"
+                android:maxLines="1"
+                android:textColor="#F8FAFC"
+                android:textColorHint="#CBD5E1"
+                android:textSize="14sp" />
+
+            <ImageButton
+                android:id="@+id/btnClearSearch"
+                android:layout_width="28dp"
+                android:layout_height="28dp"
+                android:background="?android:attr/selectableItemBackgroundBorderless"
+                android:src="@android:drawable/ic_menu_close_clear_cancel"
+                android:visibility="gone" />
+        </LinearLayout>
+
+        <ListView
+            android:id="@+id/settingsResultsList"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:divider="#26FFFFFF"
+            android:dividerHeight="1dp"
+            android:visibility="gone" />
+
+        <GridView
+            android:id="@+id/appsGridView"
+            android:focusable="true"
+            android:clipToPadding="false"
+            android:overScrollMode="never"
+            android:listSelector="@drawable/bg_tv_focus_item"
+            android:drawSelectorOnTop="false"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:layout_marginTop="8dp"
+            android:numColumns="auto_fit"
+            android:columnWidth="82dp"
+            android:stretchMode="columnWidth"
+            android:verticalSpacing="8dp"
+            android:horizontalSpacing="4dp" />
+    </LinearLayout>
+
+</FrameLayout>

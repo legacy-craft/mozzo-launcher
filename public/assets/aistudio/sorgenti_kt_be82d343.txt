@@ -1,0 +1,2340 @@
+==> ./app/src/main/java/com/mozzolauncher/app/AppRepository.kt <==
+package com.mozzolauncher.app
+
+import android.app.usage.UsageStatsManager
+import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.graphics.drawable.Drawable
+
+data class AppInfo(
+    val label: String,
+    val packageName: String,
+    val icon: Drawable,
+    val isPinned: Boolean = false,
+    val isRecent: Boolean = false
+)
+
+class AppRepository(private val context: Context) {
+
+    fun loadAllLaunchableApps(): List<AppInfo> {
+        val pm = context.packageManager
+        val map = LinkedHashMap<String, AppInfo>()
+
+        val intents = listOf(
+            Intent(Intent.ACTION_MAIN, null).apply { addCategory(Intent.CATEGORY_LAUNCHER) },
+            Intent(Intent.ACTION_MAIN, null).apply { addCategory(Intent.CATEGORY_LEANBACK_LAUNCHER) }
+        )
+
+        for (intent in intents) {
+            val resolved = pm.queryIntentActivities(intent, PackageManager.MATCH_ALL)
+            for (ri in resolved) {
+                val pkg = ri.activityInfo?.packageName ?: continue
+                if (pkg == context.packageName) continue
+                if (!map.containsKey(pkg)) {
+                    val label = ri.loadLabel(pm)?.toString()?.ifBlank { pkg } ?: pkg
+                    val icon = ri.loadIcon(pm)
+                    map[pkg] = AppInfo(label = label, packageName = pkg, icon = icon)
+                }
+            }
+        }
+        return map.values.sortedBy { it.label.lowercase() }
+    }
+
+    fun getRecentPackages(prefs: PrefsManager, limit: Int = 5): List<String> {
+        val combined = LinkedHashSet<String>()
+        combined.addAll(prefs.getLocalRecents())
+
+        try {
+            val usm = context.getSystemService(Context.USAGE_STATS_SERVICE) as? UsageStatsManager
+            val now = System.currentTimeMillis()
+            val stats = usm?.queryUsageStats(UsageStatsManager.INTERVAL_DAILY, now - 1000L * 3600 * 24, now)
+            if (!stats.isNullOrEmpty()) {
+                stats.filter { it.lastTimeUsed > 0 && it.packageName != context.packageName }
+                    .sortedByDescending { it.lastTimeUsed }
+                    .forEach { combined.add(it.packageName) }
+            }
+        } catch (_: Exception) { }
+
+        return combined.take(limit)
+    }
+
+    fun launchApp(pkg: String, prefs: PrefsManager): Boolean {
+        val pm = context.packageManager
+        val launchIntent = pm.getLaunchIntentForPackage(pkg)
+            ?: pm.getLeanbackLaunchIntentForPackage(pkg)
+        return if (launchIntent != null) {
+            launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            prefs.recordLaunchedApp(pkg)
+            context.startActivity(launchIntent)
+            true
+        } else {
+            false
+        }
+    }
+}
+
+==> ./app/src/main/java/com/mozzolauncher/app/DockAdapter.kt <==
+package com.mozzolauncher.app
+
+import android.view.Gravity
+import android.view.View
+import android.view.ViewGroup
+import android.widget.FrameLayout
+import android.widget.ImageView
+import androidx.recyclerview.widget.RecyclerView
+import java.util.Collections
+
+class DockAdapter(
+    items: List<AppInfo>,
+    private var iconSizeDp: Int,
+    private val onClick: (AppInfo) -> Unit,
+    private val onLongClick: (AppInfo) -> Unit
+) : RecyclerView.Adapter<DockAdapter.VH>() {
+
+    private val data = items.toMutableList()
+
+    class VH(val box: FrameLayout, val img: ImageView, val dot: View) : RecyclerView.ViewHolder(box)
+
+    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): VH {
+        val d = parent.resources.displayMetrics.density
+        val pad = (6 * d).toInt()
+        val box = FrameLayout(parent.context).apply {
+            isFocusable = true
+            isClickable = true
+            isLongClickable = true
+            setPadding(pad, pad, pad, pad)
+            layoutParams = RecyclerView.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+            setOnFocusChangeListener { v, hasFocus ->
+                v.scaleX = if (hasFocus) 1.15f else 1.0f
+                v.scaleY = if (hasFocus) 1.15f else 1.0f
+            }
+        }
+        val img = ImageView(parent.context).apply {
+            scaleType = ImageView.ScaleType.FIT_CENTER
+        }
+        val dot = View(parent.context).apply {
+            setBackgroundColor(0xFF60A5FA.toInt())
+        }
+        val dotLp = FrameLayout.LayoutParams((5 * d).toInt(), (5 * d).toInt()).apply {
+            gravity = Gravity.START or Gravity.CENTER_VERTICAL
+        }
+        box.addView(img)
+        box.addView(dot, dotLp)
+        return VH(box, img, dot)
+    }
+
+    override fun onBindViewHolder(holder: VH, position: Int) {
+        val app = data[position]
+        val d = holder.itemView.resources.displayMetrics.density
+        val px = (iconSizeDp * d).toInt()
+        holder.img.layoutParams = FrameLayout.LayoutParams(px, px).apply {
+            gravity = Gravity.CENTER
+            leftMargin = (4 * d).toInt()
+        }
+        holder.img.setImageDrawable(app.icon)
+        holder.dot.visibility = if (app.isPinned) View.VISIBLE else View.INVISIBLE
+        holder.box.setOnClickListener { onClick(app) }
+        holder.box.setOnLongClickListener { onLongClick(app); true }
+    }
+
+    override fun getItemCount(): Int = data.size
+
+    fun updateData(newItems: List<AppInfo>, newSizeDp: Int) {
+        iconSizeDp = newSizeDp
+        data.clear()
+        data.addAll(newItems)
+        notifyDataSetChanged()
+    }
+
+    fun moveItem(from: Int, to: Int) {
+        if (from in data.indices && to in data.indices) {
+            Collections.swap(data, from, to)
+            notifyItemMoved(from, to)
+        }
+    }
+}
+
+==> ./app/src/main/java/com/mozzolauncher/app/PrefsManager.kt <==
+package com.mozzolauncher.app
+
+import android.content.Context
+
+class PrefsManager(context: Context) {
+    private val prefs = context.getSharedPreferences("mozzo_prefs", Context.MODE_PRIVATE)
+
+    var dockSide: String
+        get() = prefs.getString("dock_side", "LEFT") ?: "LEFT"
+        set(value) = prefs.edit().putString("dock_side", value).apply()
+
+    var showRecents: Boolean
+        get() = prefs.getBoolean("show_recents", true)
+        set(value) = prefs.edit().putBoolean("show_recents", value).apply()
+
+    var iconSizeDp: Int
+        get() = prefs.getInt("icon_size_dp", 46)
+        set(value) = prefs.edit().putInt("icon_size_dp", value).apply()
+
+    var overlayMode: String
+        get() = prefs.getString("overlay_mode", "HIDDEN") ?: "HIDDEN"
+        set(value) = prefs.edit().putString("overlay_mode", value).apply()
+
+    var wallpaperUri: String?
+        get() = prefs.getString("wallpaper_uri", null)
+        set(value) = prefs.edit().putString("wallpaper_uri", value).apply()
+
+    var isDockInitialized: Boolean
+        get() = prefs.getBoolean("dock_initialized", false)
+        set(value) = prefs.edit().putBoolean("dock_initialized", value).apply()
+
+    fun getPinnedApps(): MutableList<String> {
+        val raw = prefs.getString("pinned_apps", "") ?: ""
+        if (raw.isBlank()) return mutableListOf()
+        return raw.split("|").filter { it.isNotBlank() }.toMutableList()
+    }
+
+    fun setPinnedApps(list: List<String>) {
+        prefs.edit().putString("pinned_apps", list.distinct().joinToString("|")).apply()
+    }
+
+    fun togglePinned(pkg: String): Boolean {
+        val list = getPinnedApps()
+        val added = if (list.contains(pkg)) {
+            list.remove(pkg)
+            false
+        } else {
+            list.add(pkg)
+            true
+        }
+        setPinnedApps(list)
+        return added
+    }
+
+    fun movePinned(from: Int, to: Int) {
+        val list = getPinnedApps()
+        if (from in list.indices && to in list.indices) {
+            val item = list.removeAt(from)
+            list.add(to, item)
+            setPinnedApps(list)
+        }
+    }
+
+    fun recordLaunchedApp(pkg: String) {
+        val list = getLocalRecents()
+        list.remove(pkg)
+        list.add(0, pkg)
+        prefs.edit().putString("local_recents", list.take(15).joinToString("|")).apply()
+    }
+
+    fun getLocalRecents(): MutableList<String> {
+        val raw = prefs.getString("local_recents", "") ?: ""
+        if (raw.isBlank()) return mutableListOf()
+        return raw.split("|").filter { it.isNotBlank() }.toMutableList()
+    }
+}
+
+==> ./app/src/main/java/com/mozzolauncher/app/DockOverlayService.kt <==
+package com.mozzolauncher.app
+
+import android.accessibilityservice.AccessibilityService
+import android.graphics.PixelFormat
+import android.os.Handler
+import android.os.Looper
+import android.view.Gravity
+import android.view.MotionEvent
+import android.view.View
+import android.view.WindowManager
+import android.view.accessibility.AccessibilityEvent
+import android.widget.ImageButton
+import android.widget.LinearLayout
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
+
+class DockOverlayService : AccessibilityService() {
+
+    companion object {
+        var instance: DockOverlayService? = null
+    }
+
+    private lateinit var wm: WindowManager
+    private lateinit var prefs: PrefsManager
+    private lateinit var repo: AppRepository
+    private var rootView: LinearLayout? = null
+    private var handleView: View? = null
+    private var panelView: LinearLayout? = null
+    private var recyclerView: RecyclerView? = null
+    private var isExpanded = false
+    private val handler = Handler(Looper.getMainLooper())
+    private val autoHideRunnable = Runnable {
+        if (prefs.overlayMode == "HIDDEN" && isExpanded) {
+            setExpanded(false)
+        }
+    }
+
+    override fun onServiceConnected() {
+        super.onServiceConnected()
+        instance = this
+        wm = getSystemService(WINDOW_SERVICE) as WindowManager
+        prefs = PrefsManager(this)
+        repo = AppRepository(this)
+        buildOverlay()
+        refreshConfig()
+    }
+
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        val pkg = event?.packageName?.toString() ?: return
+        if (pkg == packageName) {
+            rootView?.visibility = View.GONE
+        } else if (prefs.overlayMode != "OFF") {
+            rootView?.visibility = View.VISIBLE
+        }
+    }
+
+    override fun onInterrupt() {}
+
+    override fun onDestroy() {
+        super.onDestroy()
+        instance = null
+        rootView?.let { try { wm.removeView(it) } catch (_: Exception) {} }
+    }
+
+    private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
+
+    private fun buildOverlay() {
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+
+        val handle = View(this).apply {
+            layoutParams = LinearLayout.LayoutParams(dp(18), dp(110))
+            setBackgroundResource(R.drawable.bg_handle_left)
+            isFocusable = true
+            setOnClickListener {
+                setExpanded(!isExpanded)
+            }
+            setOnHoverListener { _, event ->
+                if (event.action == MotionEvent.ACTION_HOVER_ENTER && !isExpanded) {
+                    setExpanded(true)
+                }
+                false
+            }
+            setOnTouchListener { _, event ->
+                if (event.action == MotionEvent.ACTION_MOVE || event.action == MotionEvent.ACTION_UP) {
+                    setExpanded(!isExpanded)
+                    true
+                } else false
+            }
+        }
+
+        val panel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            setBackgroundResource(R.drawable.bg_dock_left)
+            setPadding(dp(8), dp(12), dp(8), dp(12))
+        }
+
+        val rv = RecyclerView(this).apply {
+            layoutManager = LinearLayoutManager(this@DockOverlayService, RecyclerView.VERTICAL, false)
+        }
+        panel.addView(rv)
+
+        val btnHome = ImageButton(this).apply {
+            layoutParams = LinearLayout.LayoutParams(dp(44), dp(44)).apply { topMargin = dp(8) }
+            setBackgroundResource(android.R.color.transparent)
+            setImageResource(R.drawable.ic_apps_grid)
+            setOnClickListener {
+                setExpanded(false)
+                performGlobalAction(GLOBAL_ACTION_HOME)
+            }
+        }
+        panel.addView(btnHome)
+
+        container.addView(handle)
+        container.addView(panel)
+
+        val params = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.START or Gravity.CENTER_VERTICAL
+            x = 0
+            y = 0
+        }
+
+        wm.addView(container, params)
+        rootView = container
+        handleView = handle
+        panelView = panel
+        recyclerView = rv
+    }
+
+    private fun setExpanded(expand: Boolean) {
+        isExpanded = expand
+        panelView?.visibility = if (expand) View.VISIBLE else View.GONE
+        handler.removeCallbacks(autoHideRunnable)
+        if (expand && prefs.overlayMode == "HIDDEN") {
+            handler.postDelayed(autoHideRunnable, 4500)
+        }
+    }
+
+    fun refreshConfig() {
+        val root = rootView ?: return
+        val handle = handleView ?: return
+        val panel = panelView ?: return
+        val rv = recyclerView ?: return
+
+        val mode = prefs.overlayMode
+        if (mode == "OFF") {
+            root.visibility = View.GONE
+            return
+        }
+        root.visibility = View.VISIBLE
+
+        val lp = root.layoutParams as WindowManager.LayoutParams
+        root.removeAllViews()
+        if (prefs.dockSide == "RIGHT") {
+            lp.gravity = Gravity.END or Gravity.CENTER_VERTICAL
+            handle.setBackgroundResource(R.drawable.bg_handle_right)
+            panel.setBackgroundResource(R.drawable.bg_dock_right)
+            root.addView(panel)
+            root.addView(handle)
+        } else {
+            lp.gravity = Gravity.START or Gravity.CENTER_VERTICAL
+            handle.setBackgroundResource(R.drawable.bg_handle_left)
+            panel.setBackgroundResource(R.drawable.bg_dock_left)
+            root.addView(handle)
+            root.addView(panel)
+        }
+        wm.updateViewLayout(root, lp)
+
+        val allApps = repo.loadAllLaunchableApps().associateBy { it.packageName }
+        val items = mutableListOf<AppInfo>()
+        for (pkg in prefs.getPinnedApps()) {
+            allApps[pkg]?.let { items.add(it.copy(isPinned = true)) }
+        }
+        if (prefs.showRecents) {
+            repo.getRecentPackages(prefs, 6)
+                .filter { !prefs.getPinnedApps().contains(it) && allApps.containsKey(it) }
+                .take(3)
+                .forEach { pkg -> allApps[pkg]?.let { items.add(it.copy(isRecent = true)) } }
+        }
+
+        rv.adapter = DockAdapter(
+            items = items,
+            iconSizeDp = prefs.iconSizeDp,
+            onClick = { app ->
+                setExpanded(false)
+                repo.launchApp(app.packageName, prefs)
+            },
+            onLongClick = { }
+        )
+
+        if (mode == "ALWAYS") {
+            handle.visibility = View.GONE
+            panel.visibility = View.VISIBLE
+            isExpanded = true
+        } else {
+            handle.visibility = View.VISIBLE
+            setExpanded(false)
+        }
+    }
+}
+
+==> ./app/src/main/java/com/mozzolauncher/app/MainActivity.kt <==
+package com.mozzolauncher.app
+
+import android.animation.ObjectAnimator
+import android.animation.PropertyValuesHolder
+import android.animation.ValueAnimator
+import android.app.Activity
+import android.app.AlertDialog
+import android.appwidget.AppWidgetHost
+import android.appwidget.AppWidgetManager
+import android.content.BroadcastReceiver
+import android.content.ComponentName
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.content.pm.PackageManager
+import android.content.pm.ResolveInfo
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.LinearGradient
+import android.graphics.Paint
+import android.graphics.Path
+import android.graphics.RadialGradient
+import android.graphics.Shader
+import android.graphics.Typeface
+import android.graphics.drawable.BitmapDrawable
+import android.graphics.drawable.Drawable
+import android.graphics.drawable.GradientDrawable
+import android.net.Uri
+import android.os.Build
+import android.os.Bundle
+import android.provider.AlarmClock
+import android.provider.Settings
+import android.text.Editable
+import android.text.TextUtils
+import android.text.TextWatcher
+import android.util.Base64
+import android.view.GestureDetector
+import android.view.Gravity
+import android.view.HapticFeedbackConstants
+import android.view.KeyEvent
+import android.view.LayoutInflater
+import android.view.MotionEvent
+import android.view.View
+import android.view.ViewConfiguration
+import android.view.ViewGroup
+import android.view.WindowManager
+import android.view.animation.AccelerateDecelerateInterpolator
+import android.view.inputmethod.InputMethodManager
+import android.widget.BaseAdapter
+import android.widget.EditText
+import android.widget.FrameLayout
+import android.widget.GridView
+import android.widget.HorizontalScrollView
+import android.widget.ImageButton
+import android.widget.ImageView
+import android.widget.LinearLayout
+import android.widget.ListView
+import android.widget.ScrollView
+import android.widget.Switch
+import android.widget.TextView
+import android.widget.Toast
+import org.json.JSONArray
+import org.json.JSONObject
+import java.io.ByteArrayOutputStream
+import java.io.File
+import java.io.FileOutputStream
+import java.text.Normalizer
+import java.util.Locale
+
+class MainActivity : Activity() {
+
+    data class AppItem(
+        val id: String,
+        val label: String,
+        val normalizedLabel: String,
+        val packageName: String,
+        val activityName: String,
+        val icon: Drawable,
+        val isLauncherSettings: Boolean = false,
+        val shortcutIntentUri: String? = null
+    )
+
+    data class SettingShortcut(
+        val title: String,
+        val keywords: String,
+        val action: String
+    )
+
+    data class WidgetEntry(
+        val id: Int,
+        var heightDp: Int
+    )
+
+    private val prefs by lazy {
+        val np = getSharedPreferences("mozzo_launcher_prefs", Context.MODE_PRIVATE)
+        val op = getSharedPreferences("lynx_launcher_prefs", Context.MODE_PRIVATE)
+        if (np.all.isEmpty() && op.all.isNotEmpty()) {
+            val ed = np.edit()
+            for ((k, v) in op.all) {
+                when (v) {
+                    is Boolean -> ed.putBoolean(k, v)
+                    is Int -> ed.putInt(k, v)
+                    is Long -> ed.putLong(k, v)
+                    is Float -> ed.putFloat(k, v)
+                    is String -> ed.putString(k, v)
+                }
+            }
+            ed.apply()
+        }
+        np
+    }
+
+    private lateinit var rootContainer: FrameLayout
+    private lateinit var wallpaperView: ImageView
+    private lateinit var homeCenterColumn: LinearLayout
+    private lateinit var clockContainer: LinearLayout
+    private lateinit var widgetsScrollView: ScrollView
+    private lateinit var widgetsContainer: LinearLayout
+    private lateinit var dockContainer: LinearLayout
+    private lateinit var dockFavoritesContainer: LinearLayout
+    private lateinit var btnDrawerMozzo: ImageButton
+    private lateinit var drawerPanel: LinearLayout
+    private lateinit var searchInput: EditText
+    private lateinit var btnClearSearch: ImageButton
+    private lateinit var settingsResultsList: ListView
+    private lateinit var appsGridView: GridView
+
+    private var allApps: List<AppItem> = emptyList()
+    private var filteredApps: List<AppItem> = emptyList()
+    private var filteredSettings: List<SettingShortcut> = emptyList()
+
+    private lateinit var appsAdapter: AppsAdapter
+    private lateinit var settingsAdapter: SettingsAdapter
+
+    private lateinit var appWidgetManager: AppWidgetManager
+    private lateinit var appWidgetHost: AppWidgetHost
+    private val widgetEntries = mutableListOf<WidgetEntry>()
+    private var pendingWidgetId: Int = -1
+    private var insetTop = 0
+    private var insetBottom = 0
+    private var insetLeft = 0
+    private var insetRight = 0
+
+    private val REQ_PICK_WALLPAPER = 1001
+    private val REQ_PICK_WIDGET = 1002
+    private val REQ_CREATE_WIDGET = 1003
+    private val APPWIDGET_HOST_ID = 2048
+
+    private val systemDockIcons = listOf(
+        "default" to 0,
+        "settings" to android.R.drawable.ic_menu_preferences,
+        "manage" to android.R.drawable.ic_menu_manage,
+        "call" to android.R.drawable.ic_menu_call,
+        "compass" to android.R.drawable.ic_menu_compass,
+        "camera" to android.R.drawable.ic_menu_camera,
+        "gallery" to android.R.drawable.ic_menu_gallery,
+        "search" to android.R.drawable.ic_menu_search,
+        "share" to android.R.drawable.ic_menu_share,
+        "send" to android.R.drawable.ic_menu_send,
+        "info" to android.R.drawable.ic_menu_info_details,
+        "map" to android.R.drawable.ic_dialog_map,
+        "email" to android.R.drawable.ic_dialog_email,
+        "dialer" to android.R.drawable.ic_dialog_dialer,
+        "star" to android.R.drawable.btn_star_big_on,
+        "play" to android.R.drawable.ic_media_play,
+        "folder" to android.R.drawable.ic_menu_agenda,
+        "edit" to android.R.drawable.ic_menu_edit,
+        "directions" to android.R.drawable.ic_menu_directions,
+        "today" to android.R.drawable.ic_menu_today
+    )
+
+    private val settingShortcuts by lazy {
+        listOf(
+            SettingShortcut(getString(R.string.set_wifi), "wifi internet network wireless connection rete connessione", Settings.ACTION_WIFI_SETTINGS),
+            SettingShortcut(getString(R.string.set_tethering), "hotspot tethering router usb wifi share connection condividi rete", Settings.ACTION_WIRELESS_SETTINGS),
+            SettingShortcut(getString(R.string.set_bluetooth), "bluetooth devices headphones dispositivi cuffie", Settings.ACTION_BLUETOOTH_SETTINGS),
+            SettingShortcut(getString(R.string.set_display), "display screen brightness font text schermo luminosita carattere", Settings.ACTION_DISPLAY_SETTINGS),
+            SettingShortcut(getString(R.string.set_sound), "sound volume ringtone vibration audio suono suoneria vibrazione", Settings.ACTION_SOUND_SETTINGS),
+            SettingShortcut(getString(R.string.set_battery), "battery power saving charging batteria risparmio energetico ricarica", Intent.ACTION_POWER_USAGE_SUMMARY),
+            SettingShortcut(getString(R.string.set_apps), "apps applications manage uninstall applicazioni gestisci disinstalla", Settings.ACTION_APPLICATION_SETTINGS),
+            SettingShortcut(getString(R.string.set_storage), "storage memory space archiviazione memoria spazio", Settings.ACTION_INTERNAL_STORAGE_SETTINGS),
+            SettingShortcut(getString(R.string.set_location), "location gps position posizione localizzazione", Settings.ACTION_LOCATION_SOURCE_SETTINGS),
+            SettingShortcut(getString(R.string.set_security), "security fingerprint pin password lock sicurezza impronta sblocco", Settings.ACTION_SECURITY_SETTINGS),
+            SettingShortcut(getString(R.string.set_date), "date time timezone data ora fuso orario", Settings.ACTION_DATE_SETTINGS),
+            SettingShortcut(getString(R.string.set_keyboard), "language keyboard input lingua tastiera immissione", Settings.ACTION_INPUT_METHOD_SETTINGS),
+            SettingShortcut(getString(R.string.set_about), "about phone device info system android info telefono sistema versione", Settings.ACTION_DEVICE_INFO_SETTINGS),
+            SettingShortcut(getString(R.string.set_system), "system settings impostazioni sistema", Settings.ACTION_SETTINGS)
+        )
+    }
+
+    private val packageReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            loadInstalledApps()
+        }
+    }
+
+    private val shortcutReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == "com.android.launcher.action.INSTALL_SHORTCUT") {
+                handleInstallShortcutIntent(intent)
+            }
+        }
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setupTransparentSystemBars()
+        setContentView(R.layout.activity_main)
+
+        bindViews()
+        setupWidgetHost()
+        setupAdapters()
+        setupListeners()
+
+        applySavedWallpaper()
+        loadInstalledApps()
+        applyDockSide(prefs.getString("dock_side", "left") ?: "left")
+        applyPanelOpacity(prefs.getInt("panel_opacity_pct", 75))
+        applyClockVisibility(prefs.getBoolean("show_clock", true))
+        restoreAllWidgets()
+        handleInstallShortcutIntent(intent)
+        btnDrawerMozzo.post { btnDrawerMozzo.requestFocus() }
+
+        val pkgFilter = IntentFilter().apply {
+            addAction(Intent.ACTION_PACKAGE_ADDED)
+            addAction(Intent.ACTION_PACKAGE_REMOVED)
+            addAction(Intent.ACTION_PACKAGE_CHANGED)
+            addDataScheme("package")
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(packageReceiver, pkgFilter, Context.RECEIVER_EXPORTED)
+        } else {
+            registerReceiver(packageReceiver, pkgFilter)
+        }
+
+        val scFilter = IntentFilter("com.android.launcher.action.INSTALL_SHORTCUT")
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(shortcutReceiver, scFilter, Context.RECEIVER_EXPORTED)
+        } else {
+            registerReceiver(shortcutReceiver, scFilter)
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT_WATCH) {
+            rootContainer.setOnApplyWindowInsetsListener { _, insets ->
+                @Suppress("DEPRECATION")
+                insetTop = insets.systemWindowInsetTop
+                @Suppress("DEPRECATION")
+                insetBottom = insets.systemWindowInsetBottom
+                @Suppress("DEPRECATION")
+                insetLeft = insets.systemWindowInsetLeft
+                @Suppress("DEPRECATION")
+                insetRight = insets.systemWindowInsetRight
+
+                val cLp = clockContainer.layoutParams as FrameLayout.LayoutParams
+                cLp.topMargin = insetTop + dp(14)
+                clockContainer.layoutParams = cLp
+
+                applyDockSide(prefs.getString("dock_side", "left") ?: "left")
+                insets
+            }
+        }
+
+    }
+
+    override fun onNewIntent(intent: Intent?) {
+        super.onNewIntent(intent)
+        if (intent != null) {
+            setIntent(intent)
+            handleInstallShortcutIntent(intent)
+        }
+    }
+
+    override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
+        if (keyCode == KeyEvent.KEYCODE_MENU || keyCode == KeyEvent.KEYCODE_SETTINGS || keyCode == KeyEvent.KEYCODE_INFO) {
+            showLauncherSettingsDialog()
+            return true
+        }
+        return super.onKeyDown(keyCode, event)
+    }
+
+    override fun onStart() {
+        super.onStart()
+        try {
+            appWidgetHost.startListening()
+        } catch (_: Exception) {
+        }
+    }
+
+    override fun onStop() {
+        super.onStop()
+        try {
+            appWidgetHost.stopListening()
+        } catch (_: Exception) {
+        }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        try { unregisterReceiver(packageReceiver) } catch (_: Exception) {}
+        try { unregisterReceiver(shortcutReceiver) } catch (_: Exception) {}
+    }
+
+    private fun setupTransparentSystemBars() {
+        window.apply {
+            clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS)
+            clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_NAVIGATION)
+            addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS)
+            statusBarColor = Color.TRANSPARENT
+            navigationBarColor = Color.TRANSPARENT
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                isStatusBarContrastEnforced = false
+                isNavigationBarContrastEnforced = false
+            }
+            @Suppress("DEPRECATION")
+            decorView.systemUiVisibility = (
+                View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                    or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                    or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+            )
+        }
+    }
+
+    private fun bindViews() {
+        rootContainer = findViewById(R.id.rootContainer)
+        wallpaperView = findViewById(R.id.wallpaperView)
+        homeCenterColumn = findViewById(R.id.homeCenterColumn)
+        clockContainer = findViewById(R.id.clockContainer)
+        widgetsScrollView = findViewById(R.id.widgetsScrollView)
+        widgetsContainer = findViewById(R.id.widgetsContainer)
+        dockContainer = findViewById(R.id.dockContainer)
+        dockFavoritesContainer = findViewById(R.id.dockFavoritesContainer)
+        btnDrawerMozzo = findViewById(R.id.btnDrawerMozzo)
+        drawerPanel = findViewById(R.id.drawerPanel)
+        searchInput = findViewById(R.id.searchInput)
+        btnClearSearch = findViewById(R.id.btnClearSearch)
+        settingsResultsList = findViewById(R.id.settingsResultsList)
+        appsGridView = findViewById(R.id.appsGridView)
+    }
+
+    private fun setupWidgetHost() {
+        appWidgetManager = AppWidgetManager.getInstance(this)
+        appWidgetHost = AppWidgetHost(this, APPWIDGET_HOST_ID)
+    }
+
+    private fun setupAdapters() {
+        appsAdapter = AppsAdapter()
+        appsGridView.adapter = appsAdapter
+
+        settingsAdapter = SettingsAdapter()
+        settingsResultsList.adapter = settingsAdapter
+    }
+
+    private fun triggerHaptic() {
+        rootContainer.performHapticFeedback(
+            HapticFeedbackConstants.LONG_PRESS,
+            HapticFeedbackConstants.FLAG_IGNORE_GLOBAL_SETTING
+        )
+    }
+
+    private fun setHomeFocusBlocked(blocked: Boolean) {
+        val mode = if (blocked) ViewGroup.FOCUS_BLOCK_DESCENDANTS else ViewGroup.FOCUS_AFTER_DESCENDANTS
+        homeCenterColumn.descendantFocusability = mode
+        dockContainer.descendantFocusability = mode
+        rootContainer.isFocusable = !blocked
+    }
+
+    private fun setupListeners() {
+        btnDrawerMozzo.setOnClickListener {
+            if (drawerPanel.visibility == View.VISIBLE) closeDrawer() else openDrawer()
+        }
+
+        val longPressLauncher = View.OnLongClickListener {
+            triggerHaptic()
+            showLauncherSettingsDialog()
+            true
+        }
+        rootContainer.setOnLongClickListener(longPressLauncher)
+        wallpaperView.setOnLongClickListener(longPressLauncher)
+        homeCenterColumn.setOnLongClickListener(longPressLauncher)
+        widgetsContainer.setOnLongClickListener(longPressLauncher)
+
+        val detector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
+            override fun onLongPress(e: MotionEvent) {
+                triggerHaptic()
+                showLauncherSettingsDialog()
+            }
+
+            override fun onSingleTapUp(e: MotionEvent): Boolean {
+                if (drawerPanel.visibility == View.VISIBLE) {
+                    closeDrawer()
+                    return true
+                }
+                return false
+            }
+        })
+
+        val bgTouchListener = View.OnTouchListener { _, event ->
+            detector.onTouchEvent(event)
+            false
+        }
+        wallpaperView.setOnTouchListener { _, event ->
+            detector.onTouchEvent(event)
+            true
+        }
+        widgetsScrollView.setOnTouchListener(bgTouchListener)
+        widgetsContainer.setOnTouchListener(bgTouchListener)
+        homeCenterColumn.setOnTouchListener(bgTouchListener)
+
+        clockContainer.setOnClickListener {
+            try {
+                startActivity(Intent(AlarmClock.ACTION_SHOW_ALARMS))
+            } catch (_: Exception) {
+                Toast.makeText(this, getString(R.string.toast_clock_missing), Toast.LENGTH_SHORT).show()
+            }
+        }
+        clockContainer.setOnLongClickListener(longPressLauncher)
+
+        btnClearSearch.setOnClickListener {
+            searchInput.setText("")
+        }
+
+        searchInput.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                val query = s?.toString() ?: ""
+                btnClearSearch.visibility = if (query.isEmpty()) View.GONE else View.VISIBLE
+                filterItems(query)
+            }
+            override fun afterTextChanged(s: Editable?) {}
+        })
+
+        appsGridView.setOnItemClickListener { _, _, position, _ ->
+            launchApp(filteredApps[position])
+            closeDrawer()
+        }
+
+        appsGridView.setOnItemLongClickListener { _, _, position, _ ->
+            triggerHaptic()
+            showAppOptionsDialog(filteredApps[position])
+            true
+        }
+
+        settingsResultsList.setOnItemClickListener { _, _, position, _ ->
+            val setting = filteredSettings[position]
+            openSettingAction(setting.action)
+            closeDrawer()
+        }
+
+        settingsResultsList.setOnItemLongClickListener { _, _, position, _ ->
+            triggerHaptic()
+            val setting = filteredSettings[position]
+            val token = "setting:${setting.title}|${setting.action}"
+            val favorites = getDockFavorites()
+            val isFav = favorites.contains(token)
+            val label = if (isFav) getString(R.string.dock_remove) else getString(R.string.dock_add)
+            AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                .setTitle(getString(R.string.setting_dialog_fmt, setting.title))
+                .setItems(arrayOf(label)) { _, _ ->
+                    toggleDockFavorite(token)
+                }
+                .show()
+            true
+        }
+    }
+
+    private fun saveWidgetEntries() {
+        val arr = JSONArray()
+        for (entry in widgetEntries) {
+            val obj = JSONObject()
+            obj.put("id", entry.id)
+            obj.put("height", entry.heightDp)
+            arr.put(obj)
+        }
+        prefs.edit().putString("widgets_list_json", arr.toString()).apply()
+    }
+
+    private fun restoreAllWidgets() {
+        widgetEntries.clear()
+        val raw = prefs.getString("widgets_list_json", null)
+        if (!raw.isNullOrEmpty()) {
+            try {
+                val arr = JSONArray(raw)
+                for (i in 0 until arr.length()) {
+                    val obj = arr.getJSONObject(i)
+                    val id = obj.getInt("id")
+                    val h = obj.optInt("height", 150)
+                    if (appWidgetManager.getAppWidgetInfo(id) != null) {
+                        widgetEntries.add(WidgetEntry(id, h))
+                    } else {
+                        try { appWidgetHost.deleteAppWidgetId(id) } catch (_: Exception) {}
+                    }
+                }
+            } catch (_: Exception) {}
+        } else {
+            val legacyId = prefs.getInt("appwidget_id", -1)
+            if (legacyId != -1 && appWidgetManager.getAppWidgetInfo(legacyId) != null) {
+                widgetEntries.add(WidgetEntry(legacyId, 160))
+                prefs.edit().remove("appwidget_id").apply()
+                saveWidgetEntries()
+            }
+        }
+        rebuildWidgetsUI()
+    }
+
+    private fun rebuildWidgetsUI() {
+        widgetsContainer.removeAllViews()
+        val dockSide = prefs.getString("dock_side", "left") ?: "left"
+        for (index in widgetEntries.indices) {
+            val entry = widgetEntries[index]
+            val info = appWidgetManager.getAppWidgetInfo(entry.id) ?: continue
+            val hostView = appWidgetHost.createView(this, entry.id, info)
+            hostView.setAppWidget(entry.id, info)
+
+            val cellWrapper = object : FrameLayout(this) {
+                private var downX = 0f
+                private var downY = 0f
+                private var triggered = false
+                private val slop = ViewConfiguration.get(context).scaledTouchSlop
+                private val longPressTask = Runnable {
+                    triggered = true
+                    performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                    showWidgetMenuDialog(entry)
+                }
+
+                override fun onInterceptTouchEvent(ev: MotionEvent): Boolean {
+                    when (ev.actionMasked) {
+                        MotionEvent.ACTION_DOWN -> {
+                            downX = ev.x
+                            downY = ev.y
+                            triggered = false
+                            postDelayed(longPressTask, ViewConfiguration.getLongPressTimeout().toLong())
+                        }
+                        MotionEvent.ACTION_MOVE -> {
+                            if (Math.abs(ev.x - downX) > slop || Math.abs(ev.y - downY) > slop) {
+                                removeCallbacks(longPressTask)
+                            }
+                        }
+                        MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                            removeCallbacks(longPressTask)
+                        }
+                    }
+                    return triggered
+                }
+            }
+
+            val cellLp = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                dp(entry.heightDp)
+            ).apply {
+                gravity = Gravity.CENTER_HORIZONTAL
+                topMargin = dp(6)
+                bottomMargin = dp(6)
+            }
+            cellWrapper.layoutParams = cellLp
+            cellWrapper.isFocusable = true
+            cellWrapper.setBackgroundResource(R.drawable.bg_tv_focus_item)
+            if (dockSide == "left") {
+                cellWrapper.nextFocusLeftId = R.id.btnDrawerMozzo
+            } else if (dockSide == "right") {
+                cellWrapper.nextFocusRightId = R.id.btnDrawerMozzo
+            }
+            cellWrapper.setOnLongClickListener {
+                triggerHaptic()
+                showWidgetMenuDialog(entry)
+                true
+            }
+
+            val hostLp = FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            ).apply {
+                gravity = Gravity.CENTER
+            }
+            cellWrapper.addView(hostView, hostLp)
+            widgetsContainer.addView(cellWrapper)
+        }
+    }
+
+    private fun showWidgetMenuDialog(entry: WidgetEntry) {
+        val index = widgetEntries.indexOfFirst { it.id == entry.id }
+        if (index == -1) return
+
+        val options = arrayOf(
+            getString(R.string.widget_increase),
+            getString(R.string.widget_decrease),
+            getString(R.string.widget_move_up),
+            getString(R.string.widget_move_down),
+            getString(R.string.widget_remove)
+        )
+
+        AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+            .setTitle(getString(R.string.widget_menu_title))
+            .setItems(options) { _, which ->
+                when (which) {
+                    0 -> {
+                        entry.heightDp = (entry.heightDp + 40).coerceAtMost(680)
+                        saveWidgetEntries()
+                        rebuildWidgetsUI()
+                    }
+                    1 -> {
+                        entry.heightDp = (entry.heightDp - 40).coerceAtLeast(60)
+                        saveWidgetEntries()
+                        rebuildWidgetsUI()
+                    }
+                    2 -> {
+                        if (index > 0) {
+                            val item = widgetEntries.removeAt(index)
+                            widgetEntries.add(index - 1, item)
+                            saveWidgetEntries()
+                            rebuildWidgetsUI()
+                        } else {
+                            Toast.makeText(this, getString(R.string.toast_widget_top), Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                    3 -> {
+                        if (index < widgetEntries.size - 1) {
+                            val item = widgetEntries.removeAt(index)
+                            widgetEntries.add(index + 1, item)
+                            saveWidgetEntries()
+                            rebuildWidgetsUI()
+                        } else {
+                            Toast.makeText(this, getString(R.string.toast_widget_bottom), Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                    4 -> {
+                        widgetEntries.removeAt(index)
+                        try { appWidgetHost.deleteAppWidgetId(entry.id) } catch (_: Exception) {}
+                        saveWidgetEntries()
+                        rebuildWidgetsUI()
+                        Toast.makeText(this, getString(R.string.toast_widget_removed), Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+            .show()
+    }
+
+    private fun pickNewWidget() {
+        try {
+            val appWidgetId = appWidgetHost.allocateAppWidgetId()
+            pendingWidgetId = appWidgetId
+            val pickIntent = Intent(AppWidgetManager.ACTION_APPWIDGET_PICK).apply {
+                putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
+            }
+            startActivityForResult(pickIntent, REQ_PICK_WIDGET)
+        } catch (_: Exception) {
+            if (pendingWidgetId != -1) {
+                try { appWidgetHost.deleteAppWidgetId(pendingWidgetId) } catch (_: Exception) {}
+                pendingWidgetId = -1
+            }
+            Toast.makeText(this, "Widget non supportati su TV", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun configureOrAddWidget(appWidgetId: Int) {
+        val info = appWidgetManager.getAppWidgetInfo(appWidgetId) ?: return
+        if (info.configure != null) {
+            val intent = Intent(AppWidgetManager.ACTION_APPWIDGET_CONFIGURE).apply {
+                component = info.configure
+                putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
+            }
+            startActivityForResult(intent, REQ_CREATE_WIDGET)
+        } else {
+            finishAddingWidget(appWidgetId)
+        }
+    }
+
+    private fun finishAddingWidget(appWidgetId: Int) {
+        val info = appWidgetManager.getAppWidgetInfo(appWidgetId)
+        val initialHeight = if (info != null && info.minHeight > 0) {
+            ((info.minHeight / resources.displayMetrics.density).toInt() + 50).coerceIn(190, 440)
+        } else {
+            280
+        }
+        widgetEntries.add(WidgetEntry(appWidgetId, initialHeight))
+        saveWidgetEntries()
+        rebuildWidgetsUI()
+        pendingWidgetId = -1
+        Toast.makeText(this, getString(R.string.toast_widget_added), Toast.LENGTH_SHORT).show()
+    }
+    private fun showLauncherSettingsDialog() {
+        val currentSize = prefs.getInt("icon_size_dp", 48)
+        val currentSide = prefs.getString("dock_side", "left") ?: "left"
+        val currentClock = prefs.getBoolean("show_clock", true)
+        var selectedSize = currentSize
+
+        fun makeActionButton(label: String, isPrimary: Boolean = false): TextView {
+            return TextView(this).apply {
+                text = label
+                textSize = 14f
+                gravity = Gravity.CENTER
+                isFocusable = true
+                isFocusableInTouchMode = false
+                isClickable = true
+                setPadding(dp(10), dp(10), dp(10), dp(10))
+                setTextColor(Color.WHITE)
+                setTypeface(null, if (isPrimary) Typeface.BOLD else Typeface.NORMAL)
+                background = GradientDrawable().apply {
+                    cornerRadius = dp(10).toFloat()
+                    setColor(if (isPrimary) Color.parseColor("#0284C7") else Color.parseColor("#1E293B"))
+                    setStroke(dp(1), if (isPrimary) Color.parseColor("#38BDF8") else Color.parseColor("#334155"))
+                }
+                setOnFocusChangeListener { v, hasFocus ->
+                    val gd = v.background as? GradientDrawable ?: return@setOnFocusChangeListener
+                    gd.setStroke(dp(if (hasFocus) 2 else 1), if (hasFocus) Color.WHITE else Color.parseColor("#334155")); v.invalidate()
+                }
+            }
+        }
+
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(18), dp(20), dp(18))
+        }
+
+        val headerTitle = TextView(this).apply {
+            text = getString(R.string.settings_title)
+            textSize = 18f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#F8FAFC"))
+            setPadding(0, 0, 0, dp(8))
+        }
+        root.addView(headerTitle)
+
+        fun makeSectionLabel(text: String) = TextView(this).apply {
+            this.text = text
+            textSize = 13f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#38BDF8"))
+            setPadding(0, dp(10), 0, dp(6))
+        }
+
+        root.addView(makeSectionLabel(getString(R.string.sec_icon_size)))
+        val sizes = listOf(48, 56, 64, 72, 80)
+        val sizeRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+        }
+        val sizeButtons = mutableListOf<Pair<Int, TextView>>()
+
+        fun refreshSizeButtons() {
+            for ((sz, btn) in sizeButtons) {
+                val active = (sz == selectedSize)
+                btn.background = GradientDrawable().apply {
+                    cornerRadius = dp(10).toFloat()
+                    setColor(if (active) Color.parseColor("#0284C7") else Color.parseColor("#1E293B"))
+                    setStroke(dp(1), if (active) Color.parseColor("#38BDF8") else Color.parseColor("#334155"))
+                }
+                btn.setTextColor(if (active) Color.WHITE else Color.parseColor("#CBD5E1"))
+                btn.setTypeface(null, if (active) Typeface.BOLD else Typeface.NORMAL)
+            }
+        }
+
+        for (sz in sizes) {
+            val btn = TextView(this).apply {
+                text = "${sz}"
+                textSize = 14f
+                gravity = Gravity.CENTER
+                isFocusable = true
+                setPadding(0, dp(8), 0, dp(8))
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                    marginEnd = if (sz != sizes.last()) dp(6) else 0
+                }
+                setOnFocusChangeListener { v, hasFocus ->
+                    val gd = v.background as? GradientDrawable ?: return@setOnFocusChangeListener
+                    gd.setStroke(dp(if (hasFocus) 2 else 1), if (hasFocus) Color.WHITE else Color.parseColor("#334155")); v.invalidate()
+                }
+                setOnClickListener {
+                    selectedSize = sz
+                    refreshSizeButtons()
+                    prefs.edit().putInt("icon_size_dp", sz).commit()
+                }
+            }
+            sizeButtons.add(sz to btn)
+            sizeRow.addView(btn)
+        }
+        refreshSizeButtons()
+        root.addView(sizeRow)
+
+        root.addView(makeSectionLabel(getString(R.string.show_home_clock)))
+        var selClk = currentClock
+        val clockRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        val btnOn = makeActionButton("ON").apply {
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(6) }
+        }
+        val btnOff = makeActionButton("OFF").apply {
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        fun syncClk() {
+            listOf(true to btnOn, false to btnOff).forEach { (st, b) ->
+                val act = (st == selClk)
+                b.background = GradientDrawable().apply {
+                    cornerRadius = dp(10).toFloat()
+                    setColor(if (act) Color.parseColor("#0284C7") else Color.parseColor("#1E293B"))
+                    setStroke(dp(1), if (act) Color.parseColor("#38BDF8") else Color.parseColor("#334155"))
+                }
+                b.setTextColor(if (act) Color.WHITE else Color.parseColor("#CBD5E1"))
+                b.setTypeface(null, if (act) Typeface.BOLD else Typeface.NORMAL)
+            }
+        }
+        listOf(true to btnOn, false to btnOff).forEach { (st, b) ->
+            b.setOnClickListener {
+                selClk = st
+                syncClk()
+                prefs.edit().putBoolean("show_clock", st).commit()
+            }
+        }
+        syncClk()
+        clockRow.addView(btnOn)
+        clockRow.addView(btnOff)
+        root.addView(clockRow)
+        root.addView(makeSectionLabel(getString(R.string.sec_dock_pos)))
+        var selectedSide = currentSide
+        val dockRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        val btnLeft = makeActionButton(getString(R.string.pos_left)).apply {
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(6) }
+        }
+        val btnBottom = makeActionButton(getString(R.string.pos_bottom)).apply {
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(6) }
+        }
+        val btnRight = makeActionButton(getString(R.string.pos_right)).apply {
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        fun refreshDockButtons() {
+            listOf("left" to btnLeft, "bottom" to btnBottom, "right" to btnRight).forEach { (side, b) ->
+                val active = (side == selectedSide)
+                b.background = GradientDrawable().apply {
+                    cornerRadius = dp(10).toFloat()
+                    setColor(if (active) Color.parseColor("#0284C7") else Color.parseColor("#1E293B"))
+                    setStroke(dp(1), if (active) Color.parseColor("#38BDF8") else Color.parseColor("#334155"))
+                }
+                b.setTextColor(if (active) Color.WHITE else Color.parseColor("#CBD5E1"))
+                b.setTypeface(null, if (active) Typeface.BOLD else Typeface.NORMAL)
+            }
+        }
+        listOf("left" to btnLeft, "bottom" to btnBottom, "right" to btnRight).forEach { (side, btn) ->
+            btn.setOnClickListener {
+                selectedSide = side
+                refreshDockButtons()
+                prefs.edit().putString("dock_side", side).commit()
+            }
+        }
+        refreshDockButtons()
+        dockRow.addView(btnLeft)
+        dockRow.addView(btnBottom)
+        dockRow.addView(btnRight)
+        root.addView(dockRow)
+
+        root.addView(makeSectionLabel(getString(R.string.sec_opacity)))
+        val opacities = listOf(0, 25, 50, 75, 100)
+        var selectedOp = prefs.getInt("panel_opacity_pct", 75)
+        val opRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        val opButtons = mutableListOf<Pair<Int, TextView>>()
+
+        val scroll = ScrollView(this)
+        fun updateDialogBg(pct: Int) {
+            val effectivePct = pct.coerceAtLeast(82)
+            val alpha = (effectivePct * 255) / 100
+            scroll.background = GradientDrawable().apply {
+                cornerRadius = dp(24).toFloat()
+                setColor(Color.argb(alpha, 9, 13, 20))
+                setStroke(dp(1), Color.argb(90, 148, 163, 184))
+            }
+        }
+
+        fun refreshOpButtons() {
+            for ((op, btn) in opButtons) {
+                val active = (op == selectedOp)
+                btn.background = GradientDrawable().apply {
+                    cornerRadius = dp(10).toFloat()
+                    setColor(if (active) Color.parseColor("#0284C7") else Color.parseColor("#1E293B"))
+                    setStroke(dp(1), if (active) Color.parseColor("#38BDF8") else Color.parseColor("#334155"))
+                }
+                btn.setTextColor(if (active) Color.WHITE else Color.parseColor("#CBD5E1"))
+                btn.setTypeface(null, if (active) Typeface.BOLD else Typeface.NORMAL)
+            }
+        }
+        for (op in opacities) {
+            val btn = TextView(this).apply {
+                text = "${op}%"
+                textSize = 13f
+                gravity = Gravity.CENTER
+                isFocusable = true
+                setPadding(0, dp(8), 0, dp(8))
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                    marginEnd = if (op != opacities.last()) dp(6) else 0
+                }
+                setOnFocusChangeListener { v, hasFocus ->
+                    val gd = v.background as? GradientDrawable ?: return@setOnFocusChangeListener
+                    gd.setStroke(dp(if (hasFocus) 2 else 1), if (hasFocus) Color.WHITE else Color.parseColor("#334155")); v.invalidate()
+                }
+                setOnClickListener {
+                    selectedOp = op
+                    refreshOpButtons()
+                    prefs.edit().putInt("panel_opacity_pct", op).commit()
+                    updateDialogBg(op)
+                }
+            }
+            opButtons.add(op to btn)
+            opRow.addView(btn)
+        }
+        refreshOpButtons()
+        root.addView(opRow)
+
+        root.addView(makeSectionLabel(getString(R.string.sec_widgets_fmt, widgetEntries.size)))
+        val btnAddWidget = makeActionButton(getString(R.string.btn_add_widget))
+        root.addView(btnAddWidget)
+
+        root.addView(makeSectionLabel(getString(R.string.sec_wallpaper)))
+        val wallRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        val btnPickWall = makeActionButton(getString(R.string.btn_pick_photo)).apply {
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(6) }
+        }
+        val btnResetWall = makeActionButton(getString(R.string.btn_default)).apply {
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        wallRow.addView(btnPickWall)
+        wallRow.addView(btnResetWall)
+        root.addView(wallRow)
+
+        val btnClose = makeActionButton(getString(R.string.btn_close), isPrimary = true).apply {
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(18)
+            }
+        }
+        root.addView(btnClose)
+
+        scroll.addView(root)
+        updateDialogBg(selectedOp)
+
+        setHomeFocusBlocked(true)
+        val dialog = AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+            .setView(scroll)
+            .setOnDismissListener {
+                applyClockVisibility(prefs.getBoolean("show_clock", true))
+                applyDockSide(prefs.getString("dock_side", "left") ?: "left")
+                applyPanelOpacity(prefs.getInt("panel_opacity_pct", 75))
+                appsAdapter.notifyDataSetChanged()
+                if (drawerPanel.visibility != View.VISIBLE) {
+                    setHomeFocusBlocked(false)
+                }
+            }
+            .create()
+        dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
+
+        btnAddWidget.setOnClickListener {
+            dialog.dismiss()
+            pickNewWidget()
+        }
+        btnPickWall.setOnClickListener {
+            dialog.dismiss()
+            val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                addCategory(Intent.CATEGORY_OPENABLE)
+                type = "image/*"
+            }
+            startActivityForResult(intent, REQ_PICK_WALLPAPER)
+        }
+        btnResetWall.setOnClickListener {
+            File(filesDir, "custom_wallpaper.img").delete()
+            prefs.edit().putBoolean("has_custom_wallpaper", false).apply()
+            wallpaperView.setImageBitmap(createMozzoWaveBitmap())
+            Toast.makeText(this, getString(R.string.toast_wall_reset), Toast.LENGTH_SHORT).show()
+        }
+        btnClose.setOnClickListener {
+            dialog.dismiss()
+        }
+
+        dialog.show()
+        btnClose.post {
+            btnClose.requestFocus()
+        }
+    }
+    @Deprecated("Deprecated in Java")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (resultCode != RESULT_OK) {
+            if ((requestCode == REQ_PICK_WIDGET || requestCode == REQ_CREATE_WIDGET) && pendingWidgetId != -1) {
+                try { appWidgetHost.deleteAppWidgetId(pendingWidgetId) } catch (_: Exception) {}
+                pendingWidgetId = -1
+            }
+            return
+        }
+
+        when (requestCode) {
+            REQ_PICK_WALLPAPER -> {
+                val uri = data?.data ?: return
+                saveAndApplyWallpaper(uri)
+            }
+            REQ_PICK_WIDGET -> {
+                val id = data?.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, pendingWidgetId) ?: pendingWidgetId
+                if (id != -1) configureOrAddWidget(id)
+            }
+            REQ_CREATE_WIDGET -> {
+                val id = data?.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, pendingWidgetId) ?: pendingWidgetId
+                if (id != -1) finishAddingWidget(id)
+            }
+        }
+    }
+
+    private fun saveAndApplyWallpaper(uri: Uri) {
+        try {
+            val destFile = File(filesDir, "custom_wallpaper.img")
+            contentResolver.openInputStream(uri)?.use { input ->
+                FileOutputStream(destFile).use { output ->
+                    input.copyTo(output)
+                }
+            }
+            prefs.edit().putBoolean("has_custom_wallpaper", true).apply()
+            applySavedWallpaper()
+            Toast.makeText(this, getString(R.string.toast_wall_updated), Toast.LENGTH_SHORT).show()
+        } catch (_: Exception) {
+            Toast.makeText(this, getString(R.string.toast_wall_error), Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun createMozzoWaveBitmap(): Bitmap {
+        val w = 1080
+        val h = 1920
+        val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bmp)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+
+        paint.shader = LinearGradient(
+            0f, 0f, w * 0.8f, h.toFloat(),
+            intArrayOf(
+                Color.parseColor("#07152B"),
+                Color.parseColor("#0D2B52"),
+                Color.parseColor("#123C73"),
+                Color.parseColor("#081933")
+            ),
+            floatArrayOf(0f, 0.35f, 0.72f, 1f),
+            Shader.TileMode.CLAMP
+        )
+        canvas.drawRect(0f, 0f, w.toFloat(), h.toFloat(), paint)
+
+        paint.shader = RadialGradient(
+            w * 0.75f, h * 0.38f, w * 0.95f,
+            intArrayOf(Color.parseColor("#442998E4"), Color.TRANSPARENT),
+            null,
+            Shader.TileMode.CLAMP
+        )
+        canvas.drawRect(0f, 0f, w.toFloat(), h.toFloat(), paint)
+        paint.shader = null
+
+        val wave1 = Path().apply {
+            moveTo(0f, h * 0.56f)
+            cubicTo(w * 0.32f, h * 0.42f, w * 0.68f, h * 0.68f, w.toFloat(), h * 0.50f)
+            lineTo(w.toFloat(), h.toFloat())
+            lineTo(0f, h.toFloat())
+            close()
+        }
+        paint.color = Color.parseColor("#2438BDF8")
+        canvas.drawPath(wave1, paint)
+
+        val wave2 = Path().apply {
+            moveTo(0f, h * 0.66f)
+            cubicTo(w * 0.38f, h * 0.78f, w * 0.65f, h * 0.48f, w.toFloat(), h * 0.62f)
+            lineTo(w.toFloat(), h.toFloat())
+            lineTo(0f, h.toFloat())
+            close()
+        }
+        paint.color = Color.parseColor("#2E0EA5E9")
+        canvas.drawPath(wave2, paint)
+
+        val wave3 = Path().apply {
+            moveTo(0f, h * 0.76f)
+            cubicTo(w * 0.28f, h * 0.66f, w * 0.74f, h * 0.86f, w.toFloat(), h * 0.74f)
+            lineTo(w.toFloat(), h.toFloat())
+            lineTo(0f, h.toFloat())
+            close()
+        }
+        paint.color = Color.parseColor("#380369A1")
+        canvas.drawPath(wave3, paint)
+
+        val crest = Path().apply {
+            moveTo(0f, h * 0.56f)
+            cubicTo(w * 0.32f, h * 0.42f, w * 0.68f, h * 0.68f, w.toFloat(), h * 0.50f)
+        }
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = 3f
+        paint.color = Color.parseColor("#557DD3FC")
+        canvas.drawPath(crest, paint)
+
+        return bmp
+    }
+
+    private fun applySavedWallpaper() {
+        val destFile = File(filesDir, "custom_wallpaper.img")
+        if (prefs.getBoolean("has_custom_wallpaper", false) && destFile.exists()) {
+            wallpaperView.setImageURI(null)
+            wallpaperView.setImageURI(Uri.fromFile(destFile))
+        } else {
+            wallpaperView.setImageBitmap(createMozzoWaveBitmap())
+        }
+    }
+
+    private fun applyClockVisibility(show: Boolean) {
+        clockContainer.visibility = if (show) View.VISIBLE else View.GONE
+    }
+    private fun applyPanelOpacity(percent: Int) {
+        val alpha = (percent.coerceIn(0, 100) * 255) / 100
+        val fillColor = Color.argb(alpha, 9, 13, 20)
+        val strokeColor = if (percent == 0) Color.TRANSPARENT else Color.argb(64, 148, 163, 184)
+        val side = prefs.getString("dock_side", "left") ?: "left"
+        val r = dp(24).toFloat()
+
+        dockContainer.background = GradientDrawable().apply {
+            setColor(fillColor)
+            setStroke(dp(1), strokeColor)
+            cornerRadii = when (side) {
+                "right" -> floatArrayOf(r, r, 0f, 0f, 0f, 0f, r, r)
+                "bottom" -> floatArrayOf(r, r, r, r, 0f, 0f, 0f, 0f)
+                else -> floatArrayOf(0f, 0f, r, r, r, r, 0f, 0f)
+            }
+        }
+        drawerPanel.background = GradientDrawable().apply {
+            setColor(fillColor)
+            setStroke(dp(1), strokeColor)
+            cornerRadius = r
+        }
+    }
+
+    private fun applyDockSide(side: String) {
+        val isBottom = side == "bottom"
+        val isRight = side == "right"
+
+        val dockLp = dockContainer.layoutParams as FrameLayout.LayoutParams
+        dockLp.marginStart = 0
+        dockLp.marginEnd = 0
+        if (isBottom) {
+            dockContainer.orientation = LinearLayout.HORIZONTAL
+            dockContainer.setPadding(dp(10), dp(8), dp(10), dp(10))
+            dockLp.width = ViewGroup.LayoutParams.WRAP_CONTENT
+            dockLp.height = ViewGroup.LayoutParams.WRAP_CONTENT
+            dockLp.gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+            dockLp.setMargins(
+                dp(16) + insetLeft,
+                0,
+                dp(16) + insetRight,
+                dp(8) + insetBottom
+            )
+        } else {
+            dockContainer.orientation = LinearLayout.VERTICAL
+            dockContainer.setPadding(dp(8), dp(10), dp(10), dp(10))
+            dockLp.width = ViewGroup.LayoutParams.WRAP_CONTENT
+            dockLp.height = ViewGroup.LayoutParams.WRAP_CONTENT
+            dockLp.gravity = (if (isRight) Gravity.END else Gravity.START) or Gravity.CENTER_VERTICAL
+            dockLp.setMargins(
+                if (isRight) 0 else insetLeft,
+                dp(16) + insetTop,
+                if (isRight) insetRight else 0,
+                dp(16) + insetBottom
+            )
+        }
+        dockContainer.layoutParams = dockLp
+
+        val oldScroll = dockContainer.getChildAt(0)
+        (dockFavoritesContainer.parent as? ViewGroup)?.removeView(dockFavoritesContainer)
+        dockContainer.removeView(oldScroll)
+
+        dockFavoritesContainer.orientation = if (isBottom) LinearLayout.HORIZONTAL else LinearLayout.VERTICAL
+        val newScroll: ViewGroup = if (isBottom) {
+            HorizontalScrollView(this).apply {
+                isHorizontalScrollBarEnabled = false
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                addView(dockFavoritesContainer)
+            }
+        } else {
+            ScrollView(this).apply {
+                isVerticalScrollBarEnabled = false
+                layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, 0, 1f)
+                addView(dockFavoritesContainer)
+            }
+        }
+        dockContainer.addView(newScroll, 0)
+
+        applyPanelOpacity(prefs.getInt("panel_opacity_pct", 75))
+
+        val homeLp = homeCenterColumn.layoutParams as FrameLayout.LayoutParams
+        val drawerLp = drawerPanel.layoutParams as FrameLayout.LayoutParams
+        homeLp.marginStart = 0
+        homeLp.marginEnd = 0
+        drawerLp.marginStart = 0
+        drawerLp.marginEnd = 0
+
+        val screenW = resources.displayMetrics.widthPixels
+        val isWide = screenW > resources.displayMetrics.heightPixels
+        val dPad = dp(12)
+        drawerLp.width = screenW - (dPad * 2) - insetLeft - insetRight
+        drawerLp.height = ViewGroup.LayoutParams.MATCH_PARENT
+        drawerLp.gravity = Gravity.CENTER
+        drawerLp.setMargins(
+            dPad + insetLeft,
+            dp(8) + insetTop,
+            dPad + insetRight,
+            dp(8) + insetBottom
+        )
+        drawerPanel.setPadding(dp(14), dp(14), dp(14), dp(14))
+
+        val searchBar = searchInput.parent as View
+        (searchBar.layoutParams as LinearLayout.LayoutParams).apply {
+            width = minOf(drawerLp.width - dp(28), dp(360))
+            gravity = Gravity.CENTER_HORIZONTAL
+        }
+
+        val baseTop = if (prefs.getBoolean("show_clock", true)) dp(112) else dp(24)
+        val topClockSpace = insetTop + baseTop
+
+        if (isBottom) {
+            val sPad = dp(20)
+            homeLp.width = if (isWide) {
+                (screenW * 0.54f).toInt()
+            } else {
+                screenW - sPad * 2 - insetLeft - insetRight
+            }
+            homeCenterColumn.gravity = Gravity.CENTER_HORIZONTAL or Gravity.TOP
+            homeLp.gravity = Gravity.CENTER_HORIZONTAL or Gravity.TOP
+            homeLp.setMargins(
+                sPad + insetLeft,
+                topClockSpace,
+                sPad + insetRight,
+                dp(88) + insetBottom
+            )
+        } else {
+            val dockSpace = dp(prefs.getInt("icon_size_dp", 48) + 34)
+            val outerEdge = dp(16)
+            val oppGravity = if (isRight) Gravity.START else Gravity.END
+
+            val availW = screenW - dockSpace - outerEdge - insetLeft - insetRight
+            homeLp.width = if (isWide) (availW * 0.65f).toInt() else availW
+            homeCenterColumn.gravity = Gravity.CENTER_HORIZONTAL or Gravity.TOP
+            homeLp.gravity = oppGravity or Gravity.TOP
+
+            val leftM = if (isRight) outerEdge + insetLeft else dockSpace + insetLeft
+            val rightM = if (isRight) dockSpace + insetRight else outerEdge + insetRight
+            homeLp.setMargins(leftM, topClockSpace, rightM, dp(16) + insetBottom)
+        }
+        homeCenterColumn.layoutParams = homeLp
+        drawerPanel.layoutParams = drawerLp
+
+        renderDockFavorites()
+    }
+
+    private fun openDrawer() {
+        try {
+            setHomeFocusBlocked(true)
+            homeCenterColumn.visibility = View.INVISIBLE
+            clockContainer.visibility = View.INVISIBLE
+            dockContainer.visibility = View.INVISIBLE
+            drawerPanel.visibility = View.VISIBLE
+            searchInput.setText("")
+            filterItems("")
+            searchInput.clearFocus()
+            val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+            imm.hideSoftInputFromWindow(searchInput.windowToken, 0)
+            appsGridView.post {
+                appsGridView.requestFocus()
+                if (filteredApps.isNotEmpty()) {
+                    appsGridView.setSelection(0)
+                }
+            }
+        } catch (e: Exception) {
+            Toast.makeText(this, "Errore drawer: ${e.message}", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun closeDrawer() {
+        drawerPanel.visibility = View.GONE
+        homeCenterColumn.visibility = View.VISIBLE
+        applyClockVisibility(prefs.getBoolean("show_clock", true))
+        dockContainer.visibility = View.VISIBLE
+        setHomeFocusBlocked(false)
+        searchInput.clearFocus()
+        val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+        imm.hideSoftInputFromWindow(searchInput.windowToken, 0)
+        btnDrawerMozzo.post { btnDrawerMozzo.requestFocus() }
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onBackPressed() {
+        if (drawerPanel.visibility == View.VISIBLE) {
+            closeDrawer()
+        }
+    }
+    private fun handleInstallShortcutIntent(intent: Intent?) {
+        if (intent == null) return
+        val name = intent.getStringExtra(Intent.EXTRA_SHORTCUT_NAME) ?: return
+        @Suppress("DEPRECATION")
+        val targetIntent = intent.getParcelableExtra<Intent>(Intent.EXTRA_SHORTCUT_INTENT) ?: return
+        @Suppress("DEPRECATION")
+        val iconBmp = intent.getParcelableExtra<Bitmap>(Intent.EXTRA_SHORTCUT_ICON)
+        val uriStr = targetIntent.toUri(Intent.URI_INTENT_SCHEME)
+
+        val arr = try {
+            JSONArray(prefs.getString("web_shortcuts_json", "[]"))
+        } catch (_: Exception) {
+            JSONArray()
+        }
+        val id = "shortcut_${System.currentTimeMillis()}"
+        val obj = JSONObject().apply {
+            put("id", id)
+            put("name", name)
+            put("uri", uriStr)
+            if (iconBmp != null) {
+                val baos = ByteArrayOutputStream()
+                iconBmp.compress(Bitmap.CompressFormat.PNG, 90, baos)
+                put("icon", Base64.encodeToString(baos.toByteArray(), Base64.NO_WRAP))
+            }
+        }
+        arr.put(obj)
+        prefs.edit().putString("web_shortcuts_json", arr.toString()).apply()
+        loadInstalledApps()
+        Toast.makeText(this, getString(R.string.toast_shortcut_added, name), Toast.LENGTH_SHORT).show()
+    }
+
+    private fun getSavedWebShortcuts(): List<AppItem> {
+        val result = mutableListOf<AppItem>()
+        val arr = try {
+            JSONArray(prefs.getString("web_shortcuts_json", "[]"))
+        } catch (_: Exception) {
+            return emptyList()
+        }
+        for (i in 0 until arr.length()) {
+            val obj = arr.optJSONObject(i) ?: continue
+            val id = obj.optString("id")
+            val name = obj.optString("name")
+            val uri = obj.optString("uri")
+            if (id.isEmpty() || name.isEmpty() || uri.isEmpty()) continue
+            val iconB64 = obj.optString("icon", "")
+            val drawable: Drawable = if (iconB64.isNotEmpty()) {
+                try {
+                    val bytes = Base64.decode(iconB64, Base64.DEFAULT)
+                    val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                    BitmapDrawable(resources, bmp)
+                } catch (_: Exception) {
+                    resources.getDrawable(android.R.drawable.ic_menu_compass, theme)
+                }
+            } else {
+                resources.getDrawable(android.R.drawable.ic_menu_compass, theme)
+            }
+            result.add(AppItem(id, name, normalize(name), id, "", drawable, shortcutIntentUri = uri))
+        }
+        return result
+    }
+
+    private fun removeWebShortcut(id: String) {
+        val arr = try {
+            JSONArray(prefs.getString("web_shortcuts_json", "[]"))
+        } catch (_: Exception) {
+            return
+        }
+        val next = JSONArray()
+        for (i in 0 until arr.length()) {
+            val obj = arr.optJSONObject(i) ?: continue
+            if (obj.optString("id") != id) next.put(obj)
+        }
+        prefs.edit().putString("web_shortcuts_json", next.toString()).apply()
+        val favs = getDockFavorites()
+        if (favs.remove(id)) saveDockFavorites(favs)
+        loadInstalledApps()
+    }
+
+    private fun loadInstalledApps() {
+        val seenKeys = HashSet<String>()
+        val myPkg = packageName
+        val loaded = mutableListOf<AppItem>()
+
+        fun queryCategory(cat: String) {
+            val intent = Intent(Intent.ACTION_MAIN, null).apply { addCategory(cat) }
+            val list: List<ResolveInfo> = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                packageManager.queryIntentActivities(intent, PackageManager.ResolveInfoFlags.of(0))
+            } else {
+                @Suppress("DEPRECATION")
+                packageManager.queryIntentActivities(intent, 0)
+            }
+            for (ri in list) {
+                val pkg = ri.activityInfo.packageName
+                if (pkg == myPkg) continue
+                val act = ri.activityInfo.name
+                val key = "$pkg/$act"
+                if (!seenKeys.add(key)) continue
+                val label = ri.loadLabel(packageManager)?.toString() ?: pkg
+                val icon = ri.loadIcon(packageManager)
+                loaded.add(AppItem(pkg, label, normalize(label), pkg, act, icon))
+            }
+        }
+
+        queryCategory(Intent.CATEGORY_LAUNCHER)
+        queryCategory("android.intent.category.LEANBACK_LAUNCHER")
+        loaded.addAll(getSavedWebShortcuts())
+
+        val launcherIcon = try {
+            packageManager.getApplicationIcon(packageName)
+        } catch (_: Exception) {
+            resources.getDrawable(android.R.drawable.ic_menu_preferences, theme)
+        }
+        loaded.add(
+            AppItem(
+                id = "internal.mozzo.settings",
+                label = getString(R.string.settings_app_label),
+                normalizedLabel = "mozzo settings launcher wallpaper dock icons impostazioni sfondo icone",
+                packageName = "internal.mozzo.settings",
+                activityName = "",
+                icon = launcherIcon,
+                isLauncherSettings = true
+            )
+        )
+
+        allApps = loaded.sortedBy { it.normalizedLabel }
+        filterItems(searchInput.text?.toString() ?: "")
+        renderDockFavorites()
+    }
+    private fun filterItems(rawQuery: String) {
+        val q = normalize(rawQuery.trim())
+        if (q.isEmpty()) {
+            filteredApps = allApps
+            filteredSettings = emptyList()
+            settingsResultsList.visibility = View.GONE
+        } else {
+            filteredApps = allApps.filter {
+                it.normalizedLabel.contains(q) || it.packageName.lowercase(Locale.ROOT).contains(q)
+            }
+            filteredSettings = settingShortcuts.filter {
+                normalize(it.title).contains(q) || normalize(it.keywords).contains(q)
+            }
+            settingsResultsList.visibility = if (filteredSettings.isEmpty()) View.GONE else View.VISIBLE
+        }
+        appsAdapter.notifyDataSetChanged()
+        settingsAdapter.notifyDataSetChanged()
+    }
+
+    private fun openSettingAction(action: String) {
+        try {
+            startActivity(Intent(action))
+        } catch (_: Exception) {
+            try {
+                startActivity(Intent(Settings.ACTION_SETTINGS))
+            } catch (_: Exception) {
+                Toast.makeText(this, getString(R.string.toast_setting_error), Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    private fun launchApp(app: AppItem) {
+        if (app.isLauncherSettings) {
+            showLauncherSettingsDialog()
+            return
+        }
+        if (app.shortcutIntentUri != null) {
+            try {
+                val parsed = Intent.parseUri(app.shortcutIntentUri, Intent.URI_INTENT_SCHEME).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                startActivity(parsed)
+            } catch (_: Exception) {
+                Toast.makeText(this, getString(R.string.toast_setting_error), Toast.LENGTH_SHORT).show()
+            }
+            return
+        }
+        try {
+            val intent = Intent(Intent.ACTION_MAIN).apply {
+                addCategory(Intent.CATEGORY_LAUNCHER)
+                component = ComponentName(app.packageName, app.activityName)
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED
+            }
+            startActivity(intent)
+        } catch (_: Exception) {
+            val fallback = packageManager.getLaunchIntentForPackage(app.packageName)
+            if (fallback != null) {
+                startActivity(fallback)
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                val leanback = packageManager.getLeanbackLaunchIntentForPackage(app.packageName)
+                if (leanback != null) startActivity(leanback)
+            }
+        }
+    }
+
+    private fun showAppOptionsDialog(app: AppItem) {
+        if (app.isLauncherSettings) {
+            val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                data = Uri.parse("package:$packageName")
+            }
+            startActivity(intent)
+            return
+        }
+        val favorites = getDockFavorites()
+        val isFav = favorites.contains(app.packageName)
+        val favLabel = if (isFav) getString(R.string.dock_remove) else getString(R.string.dock_add)
+
+        val options = if (app.shortcutIntentUri != null) {
+            arrayOf(favLabel, getString(R.string.shortcut_delete))
+        } else {
+            arrayOf(favLabel, getString(R.string.app_info))
+        }
+
+        AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+            .setTitle(app.label)
+            .setItems(options) { _, which ->
+                when (which) {
+                    0 -> toggleDockFavorite(app.packageName)
+                    1 -> {
+                        if (app.shortcutIntentUri != null) {
+                            removeWebShortcut(app.packageName)
+                        } else {
+                            val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                data = Uri.parse("package:${app.packageName}")
+                            }
+                            startActivity(intent)
+                        }
+                    }
+                }
+            }
+            .show()
+    }
+    private fun getDockFavorites(): MutableList<String> {
+        val raw = prefs.getString("dock_favorites", null)
+        if (raw == null || (raw.isEmpty() && !prefs.getBoolean("dock_initialized", false))) {
+            val defaults = mutableListOf<String>()
+            val commonIntents = listOf(
+                Intent(Intent.ACTION_DIAL),
+                Intent.createChooser(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_APP_MESSAGING), ""),
+                Intent.createChooser(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_APP_BROWSER), ""),
+                Intent(android.provider.MediaStore.ACTION_IMAGE_CAPTURE)
+            )
+            for (i in commonIntents) {
+                val res = packageManager.resolveActivity(i, PackageManager.MATCH_DEFAULT_ONLY)
+                val pkg = res?.activityInfo?.packageName
+                if (pkg != null && pkg != "android" && pkg != packageName && !defaults.contains(pkg)) {
+                    defaults.add(pkg)
+                }
+            }
+            if (defaults.size < 4 && allApps.isNotEmpty()) {
+                for (app in allApps) {
+                    if (app.isLauncherSettings) continue
+                    if (!defaults.contains(app.packageName)) {
+                        defaults.add(app.packageName)
+                    }
+                    if (defaults.size >= 4) break
+                }
+            }
+            if (defaults.isNotEmpty()) {
+                prefs.edit().putBoolean("dock_initialized", true).apply()
+                saveDockFavorites(defaults)
+            }
+            return defaults
+        }
+        return if (raw.isEmpty()) mutableListOf() else raw.split(",").toMutableList()
+    }
+
+    private fun saveDockFavorites(list: List<String>) {
+        prefs.edit()
+            .putBoolean("dock_initialized", true)
+            .putString("dock_favorites", list.joinToString(","))
+            .apply()
+    }
+
+    private fun toggleDockFavorite(pkg: String) {
+        val list = getDockFavorites()
+        if (list.contains(pkg)) {
+            list.remove(pkg)
+            Toast.makeText(this, getString(R.string.toast_dock_removed), Toast.LENGTH_SHORT).show()
+        } else {
+            list.add(pkg)
+            Toast.makeText(this, getString(R.string.toast_dock_added), Toast.LENGTH_SHORT).show()
+        }
+        saveDockFavorites(list)
+        renderDockFavorites()
+    }
+
+    private fun moveDockFavorite(entry: String, delta: Int) {
+        val list = getDockFavorites()
+        val idx = list.indexOf(entry)
+        if (idx == -1) return
+        val newIdx = idx + delta
+        if (newIdx < 0 || newIdx >= list.size) return
+        list.removeAt(idx)
+        list.add(newIdx, entry)
+        saveDockFavorites(list)
+        renderDockFavorites()
+    }
+
+    private fun getDockCustomIconRes(entry: String): Int {
+        val savedId = prefs.getInt("dock_icon_res_$entry", 0)
+        return if (systemDockIcons.any { it.second == savedId }) savedId else 0
+    }
+    private fun showDockIconPicker(entry: String, title: String) {
+        val grid = GridView(this).apply {
+            numColumns = 4
+            verticalSpacing = dp(10)
+            horizontalSpacing = dp(10)
+            setPadding(dp(16), dp(16), dp(16), dp(16))
+        }
+        var dialog: AlertDialog? = null
+        grid.adapter = object : BaseAdapter() {
+            override fun getCount(): Int = systemDockIcons.size
+            override fun getItem(position: Int) = systemDockIcons[position]
+            override fun getItemId(position: Int): Long = position.toLong()
+            override fun getView(position: Int, convertView: View?, parent: ViewGroup?): View {
+                val (label, resId) = systemDockIcons[position]
+                val cell = LinearLayout(this@MainActivity).apply {
+                    orientation = LinearLayout.VERTICAL
+                    gravity = Gravity.CENTER
+                    setPadding(dp(6), dp(8), dp(6), dp(8))
+                    setBackgroundResource(R.drawable.bg_tv_focus_item)
+                }
+                val iv = ImageView(this@MainActivity).apply {
+                    layoutParams = LinearLayout.LayoutParams(dp(34), dp(34))
+                    scaleType = ImageView.ScaleType.FIT_CENTER
+                    setImageResource(if (resId == 0) android.R.drawable.ic_menu_revert else resId)
+                    setColorFilter(if (resId == 0) Color.parseColor("#94A3B8") else Color.parseColor("#38BDF8"))
+                }
+                val tv = TextView(this@MainActivity).apply {
+                    text = label
+                    textSize = 11f
+                    maxLines = 1
+                    ellipsize = TextUtils.TruncateAt.END
+                    setTextColor(Color.parseColor("#E2E8F0"))
+                    setPadding(0, dp(4), 0, 0)
+                }
+                cell.addView(iv)
+                cell.addView(tv)
+                cell.setOnClickListener {
+                    if (resId == 0) {
+                        prefs.edit().remove("dock_icon_res_$entry").apply()
+                    } else {
+                        prefs.edit().putInt("dock_icon_res_$entry", resId).apply()
+                    }
+                    renderDockFavorites()
+                    dialog?.dismiss()
+                }
+                return cell
+            }
+        }
+        dialog = AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+            .setTitle(getString(R.string.dock_pick_icon_title, title))
+            .setView(grid)
+            .create()
+        dialog.show()
+    }
+
+    private fun showDockItemMenu(entry: String, title: String, app: AppItem?) {
+        val list = getDockFavorites()
+        val idx = list.indexOf(entry)
+        val options = mutableListOf<String>()
+        val actions = mutableListOf<() -> Unit>()
+
+        if (idx > 0) {
+            options.add(getString(R.string.dock_move_before))
+            actions.add { moveDockFavorite(entry, -1) }
+        }
+        if (idx != -1 && idx < list.size - 1) {
+            options.add(getString(R.string.dock_move_after))
+            actions.add { moveDockFavorite(entry, 1) }
+        }
+        options.add(getString(R.string.dock_change_icon))
+        actions.add { showDockIconPicker(entry, title) }
+
+        options.add(getString(R.string.dock_remove))
+        actions.add { toggleDockFavorite(entry) }
+
+        if (app != null && !app.isLauncherSettings && app.shortcutIntentUri == null) {
+            options.add(getString(R.string.app_info))
+            actions.add {
+                val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                    data = Uri.parse("package:${app.packageName}")
+                }
+                startActivity(intent)
+            }
+        }
+
+        AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+            .setTitle(title)
+            .setItems(options.toTypedArray()) { _, which ->
+                actions[which].invoke()
+            }
+            .show()
+    }
+    private fun renderDockFavorites() {
+        dockFavoritesContainer.removeAllViews()
+        val favPkgs = getDockFavorites()
+        val appMap = allApps.associateBy { it.packageName }
+        val iconSizePx = dp(prefs.getInt("icon_size_dp", 48))
+        val side = prefs.getString("dock_side", "left") ?: "left"
+        val isBottom = side == "bottom"
+
+        val drawerLp = btnDrawerMozzo.layoutParams as LinearLayout.LayoutParams
+        drawerLp.width = iconSizePx
+        drawerLp.height = iconSizePx
+        if (isBottom) {
+            drawerLp.setMargins(dp(6), 0, 0, 0)
+        } else {
+            drawerLp.setMargins(0, dp(6), 0, 0)
+        }
+        btnDrawerMozzo.layoutParams = drawerLp
+
+        fun makeItemLp() = LinearLayout.LayoutParams(iconSizePx, iconSizePx).apply {
+            if (isBottom) {
+                leftMargin = dp(5)
+                rightMargin = dp(5)
+            } else {
+                topMargin = dp(6)
+                bottomMargin = dp(6)
+            }
+        }
+
+        for (entry in favPkgs) {
+            val customRes = getDockCustomIconRes(entry)
+
+            if (entry.startsWith("setting:")) {
+                val parts = entry.removePrefix("setting:").split("|", limit = 2)
+                val title = parts.getOrElse(0) { "Impostazioni" }
+                val action = parts.getOrElse(1) { Settings.ACTION_SETTINGS }
+                val btn = ImageButton(this).apply {
+                    layoutParams = makeItemLp()
+                    setPadding(dp(6), dp(6), dp(6), dp(6))
+                    scaleType = ImageView.ScaleType.FIT_CENTER
+                    setImageResource(if (customRes != 0) customRes else android.R.drawable.ic_menu_manage)
+                    setColorFilter(Color.parseColor("#38BDF8"))
+                    isFocusable = true
+                    setBackgroundResource(R.drawable.bg_tv_focus_item)
+                    contentDescription = title
+                    setOnClickListener { openSettingAction(action) }
+                    setOnLongClickListener {
+                        triggerHaptic()
+                        showDockItemMenu(entry, title, null)
+                        true
+                    }
+                }
+                dockFavoritesContainer.addView(btn)
+                continue
+            }
+
+            val app = appMap[entry] ?: continue
+            val btn = ImageButton(this).apply {
+                layoutParams = makeItemLp()
+                setPadding(dp(4), dp(4), dp(4), dp(4))
+                scaleType = ImageView.ScaleType.FIT_CENTER
+                if (customRes != 0) {
+                    setImageResource(customRes)
+                    setColorFilter(Color.parseColor("#38BDF8"))
+                } else {
+                    clearColorFilter()
+                    setImageDrawable(app.icon)
+                }
+                isFocusable = true
+                setBackgroundResource(R.drawable.bg_tv_focus_item)
+                contentDescription = app.label
+                setOnClickListener { launchApp(app) }
+                setOnLongClickListener {
+                    triggerHaptic()
+                    showDockItemMenu(entry, app.label, app)
+                    true
+                }
+            }
+            dockFavoritesContainer.addView(btn)
+        }
+    }
+
+    private fun normalize(input: String): String {
+        val temp = Normalizer.normalize(input, Normalizer.Form.NFD)
+        return temp.replace("\\p{InCombiningDiacriticalMarks}+".toRegex(), "").lowercase(Locale.ROOT)
+    }
+
+    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
+
+    inner class AppsAdapter : BaseAdapter() {
+        override fun getCount(): Int = filteredApps.size
+        override fun getItem(position: Int): AppItem = filteredApps[position]
+        override fun getItemId(position: Int): Long = position.toLong()
+
+        override fun getView(position: Int, convertView: View?, parent: ViewGroup?): View {
+            val view = convertView ?: LayoutInflater.from(this@MainActivity)
+                .inflate(R.layout.item_app, parent, false)
+            val app = getItem(position)
+            val iconView = view.findViewById<ImageView>(R.id.appIcon)
+            val labelView = view.findViewById<TextView>(R.id.appLabel)
+
+            val iconSizePx = dp(prefs.getInt("icon_size_dp", 48))
+            val lp = iconView.layoutParams
+            lp.width = iconSizePx
+            lp.height = iconSizePx
+            iconView.layoutParams = lp
+
+            iconView.setImageDrawable(app.icon)
+            labelView.text = app.label
+            return view
+        }
+    }
+
+    inner class SettingsAdapter : BaseAdapter() {
+        override fun getCount(): Int = filteredSettings.size
+        override fun getItem(position: Int): SettingShortcut = filteredSettings[position]
+        override fun getItemId(position: Int): Long = position.toLong()
+
+        override fun getView(position: Int, convertView: View?, parent: ViewGroup?): View {
+            val tv = (convertView as? TextView) ?: TextView(this@MainActivity).apply {
+                setPadding(dp(12), dp(10), dp(12), dp(10))
+                textSize = 14f
+                setTextColor(Color.parseColor("#38BDF8"))
+                maxLines = 1
+                ellipsize = TextUtils.TruncateAt.END
+            }
+            tv.text = getString(R.string.setting_prefix_fmt, getItem(position).title)
+            return tv
+        }
+    }
+}
+
+==> ./app/src/main/java/com/mozzolauncher/app/DrawerAdapter.kt <==
+package com.mozzolauncher.app
+
+import android.text.TextUtils
+import android.view.Gravity
+import android.view.ViewGroup
+import android.widget.ImageView
+import android.widget.LinearLayout
+import android.widget.TextView
+import androidx.recyclerview.widget.RecyclerView
+
+class DrawerAdapter(
+    items: List<AppInfo>,
+    private var iconSizeDp: Int,
+    private val onClick: (AppInfo) -> Unit,
+    private val onLongClick: (AppInfo) -> Unit
+) : RecyclerView.Adapter<DrawerAdapter.VH>() {
+
+    private val data = items.toMutableList()
+
+    class VH(val root: LinearLayout, val img: ImageView, val txt: TextView) : RecyclerView.ViewHolder(root)
+
+    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): VH {
+        val d = parent.resources.displayMetrics.density
+        val pad = (8 * d).toInt()
+        val root = LinearLayout(parent.context).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            isFocusable = true
+            isClickable = true
+            isLongClickable = true
+            setPadding(pad, pad, pad, pad)
+            layoutParams = RecyclerView.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+            setOnFocusChangeListener { v, hasFocus ->
+                v.setBackgroundColor(if (hasFocus) 0x333B82F6 else 0x00000000)
+                v.scaleX = if (hasFocus) 1.06f else 1.0f
+                v.scaleY = if (hasFocus) 1.06f else 1.0f
+            }
+        }
+        val img = ImageView(parent.context).apply {
+            scaleType = ImageView.ScaleType.FIT_CENTER
+        }
+        val txt = TextView(parent.context).apply {
+            gravity = Gravity.CENTER
+            maxLines = 2
+            ellipsize = TextUtils.TruncateAt.END
+            textSize = 12f
+            setTextColor(0xFFF1F5F9.toInt())
+        }
+        val txtLp = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply { topMargin = (6 * d).toInt() }
+
+        root.addView(img)
+        root.addView(txt, txtLp)
+        return VH(root, img, txt)
+    }
+
+    override fun onBindViewHolder(holder: VH, position: Int) {
+        val app = data[position]
+        val d = holder.itemView.resources.displayMetrics.density
+        val px = (iconSizeDp * d).toInt()
+        holder.img.layoutParams = LinearLayout.LayoutParams(px, px)
+        holder.img.setImageDrawable(app.icon)
+        holder.txt.text = if (app.isPinned) "★ ${app.label}" else app.label
+        holder.root.setOnClickListener { onClick(app) }
+        holder.root.setOnLongClickListener { onLongClick(app); true }
+    }
+
+    override fun getItemCount(): Int = data.size
+
+    fun updateData(newItems: List<AppInfo>, newSizeDp: Int) {
+        iconSizeDp = newSizeDp
+        data.clear()
+        data.addAll(newItems)
+        notifyDataSetChanged()
+    }
+}
