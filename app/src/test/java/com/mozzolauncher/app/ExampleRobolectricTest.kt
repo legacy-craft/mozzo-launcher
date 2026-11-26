@@ -290,4 +290,159 @@ class ExampleRobolectricTest {
       assertTrue(localized.getString(R.string.toast_drawer_error_fmt, "Err").contains("Err"))
     }
   }
+
+  @Test
+  fun `settings dialog uses 1 column on narrow phone and 2 columns with capped width on TV`() {
+    val controller = Robolectric.buildActivity(MainActivity::class.java).setup()
+    val activity = controller.get()
+    Shadows.shadowOf(Looper.getMainLooper()).idle()
+
+    // Narrow phone portrait (~360dp wide)
+    activity.resources.displayMetrics.density = 2f
+    activity.resources.displayMetrics.widthPixels = 720
+    activity.resources.displayMetrics.heightPixels = 1600
+
+    activity.onKeyDown(android.view.KeyEvent.KEYCODE_MENU, null)
+    Shadows.shadowOf(Looper.getMainLooper()).idle()
+    val phoneDialog = ShadowAlertDialog.getLatestAlertDialog()
+    assertTrue(phoneDialog.isShowing)
+    assertNull(phoneDialog.window!!.decorView.findViewWithTag<View>("settings_columns_row"))
+    val phoneDialogW = phoneDialog.window!!.attributes.width
+    assertTrue(phoneDialogW in 600..700)
+    phoneDialog.dismiss()
+    Shadows.shadowOf(Looper.getMainLooper()).idle()
+
+    // Android TV 1080p (~960dp wide x 540dp tall at xhdpi)
+    activity.resources.displayMetrics.widthPixels = 1920
+    activity.resources.displayMetrics.heightPixels = 1080
+    val cfg = android.content.res.Configuration(activity.resources.configuration).apply {
+      orientation = android.content.res.Configuration.ORIENTATION_LANDSCAPE
+    }
+    activity.onConfigurationChanged(cfg)
+    activity.onKeyDown(android.view.KeyEvent.KEYCODE_MENU, null)
+    Shadows.shadowOf(Looper.getMainLooper()).idle()
+
+    val tvDialog = ShadowAlertDialog.getLatestAlertDialog()
+    assertTrue(tvDialog.isShowing)
+    assertNotNull(tvDialog.window!!.decorView.findViewWithTag<View>("settings_columns_row"))
+    val tvDialogW = tvDialog.window!!.attributes.width
+    // Capped <= 700dp (1400px at 2f) and noticeably narrower than 1920px TV screen
+    assertTrue(tvDialogW in 1080..1400)
+  }
+
+  private fun addLauncherActivity(
+    spm: org.robolectric.shadows.ShadowPackageManager,
+    pkg: String,
+    cls: String,
+    label: String,
+    category: String? = Intent.CATEGORY_LAUNCHER
+  ) {
+    val cn = android.content.ComponentName(pkg, cls)
+    val ai = spm.addActivityIfNotPresent(cn)
+    ai.nonLocalizedLabel = label
+    ai.exported = true
+    ai.applicationInfo.nonLocalizedLabel = label
+    spm.addOrUpdateActivity(ai)
+    if (category != null) {
+      spm.addIntentFilterForActivity(
+        cn,
+        android.content.IntentFilter(Intent.ACTION_MAIN).apply {
+          addCategory(category)
+        }
+      )
+    }
+  }
+
+  @Test
+  fun `first install populates 4 dock icons on phone despite partial intent matches`() {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val spm = Shadows.shadowOf(context.packageManager)
+
+    // Install 5 launchable apps, only 2 matching common phone intents (dialer + camera)
+    addLauncherActivity(spm, "com.test.dialer", "com.test.dialer.Main", "Phone")
+    addLauncherActivity(spm, "com.test.camera", "com.test.camera.Main", "Camera")
+    addLauncherActivity(spm, "com.test.files", "com.test.files.Main", "Files")
+    addLauncherActivity(spm, "com.test.music", "com.test.music.Main", "Music")
+    addLauncherActivity(spm, "com.test.notes", "com.test.notes.Main", "Notes")
+
+    spm.addIntentFilterForActivity(
+      android.content.ComponentName("com.test.dialer", "com.test.dialer.Main"),
+      android.content.IntentFilter(Intent.ACTION_DIAL).apply { addCategory(Intent.CATEGORY_DEFAULT) }
+    )
+    spm.addIntentFilterForActivity(
+      android.content.ComponentName("com.test.camera", "com.test.camera.Main"),
+      android.content.IntentFilter(android.provider.MediaStore.ACTION_IMAGE_CAPTURE).apply {
+        addCategory(Intent.CATEGORY_DEFAULT)
+      }
+    )
+
+    val controller = Robolectric.buildActivity(MainActivity::class.java).setup()
+    val activity = controller.get()
+    Shadows.shadowOf(Looper.getMainLooper()).idle()
+
+    val dockFavorites = activity.findViewById<LinearLayout>(R.id.dockFavoritesContainer)
+    assertEquals(4, dockFavorites.childCount)
+  }
+
+  @Test
+  fun `first install populates 4 visible dock icons on Android TV and ignores non-launchable stubs`() {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val spm = Shadows.shadowOf(context.packageManager)
+    spm.setSystemFeature(android.content.pm.PackageManager.FEATURE_LEANBACK, true)
+
+    // Install a hidden non-launcher intent handler stub that could previously hijack dock_favorites
+    val stubCn = android.content.ComponentName("com.tv.hiddenstub", "com.tv.hiddenstub.Stub")
+    addLauncherActivity(spm, "com.tv.hiddenstub", "com.tv.hiddenstub.Stub", "Stub", category = null)
+    spm.addIntentFilterForActivity(
+      stubCn,
+      android.content.IntentFilter(Intent.ACTION_DIAL).apply { addCategory(Intent.CATEGORY_DEFAULT) }
+    )
+
+    // Install 5 real Leanback TV apps
+    addLauncherActivity(spm, "com.tv.youtube", "com.tv.youtube.Main", "YouTube", "android.intent.category.LEANBACK_LAUNCHER")
+    addLauncherActivity(spm, "com.tv.netflix", "com.tv.netflix.Main", "Netflix", "android.intent.category.LEANBACK_LAUNCHER")
+    addLauncherActivity(spm, "com.tv.vlc", "com.tv.vlc.Main", "VLC", "android.intent.category.LEANBACK_LAUNCHER")
+    addLauncherActivity(spm, "com.tv.store", "com.tv.store.Main", "Play Store", "android.intent.category.LEANBACK_LAUNCHER")
+    addLauncherActivity(spm, "com.tv.plex", "com.tv.plex.Main", "Plex", "android.intent.category.LEANBACK_LAUNCHER")
+
+    val controller = Robolectric.buildActivity(MainActivity::class.java).setup()
+    val activity = controller.get()
+    Shadows.shadowOf(Looper.getMainLooper()).idle()
+
+    val dockFavorites = activity.findViewById<LinearLayout>(R.id.dockFavoritesContainer)
+    assertEquals(4, dockFavorites.childCount)
+  }
+
+  @Test
+  fun `legacy 2-item dock tops up to 4 on upgrade and preserves manual edits afterwards`() {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val spm = Shadows.shadowOf(context.packageManager)
+
+    addLauncherActivity(spm, "com.test.dialer", "com.test.dialer.Main", "Phone")
+    addLauncherActivity(spm, "com.test.camera", "com.test.camera.Main", "Camera")
+    addLauncherActivity(spm, "com.test.browser", "com.test.browser.Main", "Browser")
+    addLauncherActivity(spm, "com.test.messages", "com.test.messages.Main", "Messages")
+    addLauncherActivity(spm, "com.test.files", "com.test.files.Main", "Files")
+
+    // Simulate legacy install that locked only dialer+camera without dock_defaults_v2
+    val prefs = context.getSharedPreferences("mozzo_launcher_prefs", Context.MODE_PRIVATE)
+    prefs.edit()
+      .putBoolean("dock_initialized", true)
+      .putString("dock_favorites", "com.test.dialer,com.test.camera")
+      .commit()
+
+    val controller = Robolectric.buildActivity(MainActivity::class.java).setup()
+    val activity = controller.get()
+    Shadows.shadowOf(Looper.getMainLooper()).idle()
+
+    val dockFavorites = activity.findViewById<LinearLayout>(R.id.dockFavoritesContainer)
+    assertEquals(4, dockFavorites.childCount)
+    assertTrue(prefs.getBoolean("dock_defaults_v2", false))
+
+    // If the user explicitly leaves only 1 item after v2 migration, it is preserved
+    prefs.edit().putString("dock_favorites", "com.test.dialer").commit()
+    val controller2 = Robolectric.buildActivity(MainActivity::class.java).setup()
+    Shadows.shadowOf(Looper.getMainLooper()).idle()
+    assertEquals(1, controller2.get().findViewById<LinearLayout>(R.id.dockFavoritesContainer).childCount)
+  }
 }

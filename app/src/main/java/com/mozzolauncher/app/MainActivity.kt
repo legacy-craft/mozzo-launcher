@@ -297,6 +297,11 @@ class MainActivity : Activity() {
         if (!prefs.getBoolean("has_custom_wallpaper", false)) {
             applySavedWallpaper()
         }
+        if (settingsDialog?.isShowing == true) {
+            settingsDialog?.dismiss()
+            settingsDialog = null
+            showLauncherSettingsDialog()
+        }
     }
 
     override fun onResume() {
@@ -1147,9 +1152,13 @@ class MainActivity : Activity() {
             }
         }
 
+        val availW = resources.displayMetrics.widthPixels
+        val density = resources.displayMetrics.density.coerceAtLeast(1f)
+        val useTwoColumns = (availW / density) >= 600f
+
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(18), dp(20), dp(18))
+            setPadding(dp(20), dp(16), dp(20), dp(16))
         }
 
         val headerTitle = TextView(this).apply {
@@ -1157,9 +1166,36 @@ class MainActivity : Activity() {
             textSize = 18f
             setTypeface(null, Typeface.BOLD)
             setTextColor(Color.parseColor("#F8FAFC"))
-            setPadding(0, 0, 0, dp(8))
+            setPadding(0, 0, 0, dp(6))
         }
         root.addView(headerTitle)
+
+        val leftColumn: LinearLayout
+        val rightColumn: LinearLayout
+        if (useTwoColumns) {
+            leftColumn = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                    marginEnd = dp(18)
+                }
+            }
+            rightColumn = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            }
+            val columnsContainer = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                isBaselineAligned = false
+                tag = "settings_columns_row"
+                layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            }
+            columnsContainer.addView(leftColumn)
+            columnsContainer.addView(rightColumn)
+            root.addView(columnsContainer)
+        } else {
+            leftColumn = root
+            rightColumn = root
+        }
 
         fun makeSectionLabel(text: String) = TextView(this).apply {
             this.text = text
@@ -1169,7 +1205,7 @@ class MainActivity : Activity() {
             setPadding(0, dp(10), 0, dp(6))
         }
 
-        root.addView(makeSectionLabel(getString(R.string.sec_icon_size)))
+        leftColumn.addView(makeSectionLabel(getString(R.string.sec_icon_size)))
         val sizes = listOf(48, 56, 64, 72, 80)
         val sizeRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -1214,9 +1250,9 @@ class MainActivity : Activity() {
             sizeRow.addView(btn)
         }
         refreshSizeButtons()
-        root.addView(sizeRow)
+        leftColumn.addView(sizeRow)
 
-        root.addView(makeSectionLabel(getString(R.string.show_home_clock)))
+        leftColumn.addView(makeSectionLabel(getString(R.string.show_home_clock)))
         var selClk = currentClock
         val clockRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         val btnOn = makeActionButton("ON").apply {
@@ -1247,8 +1283,8 @@ class MainActivity : Activity() {
         syncClk()
         clockRow.addView(btnOn)
         clockRow.addView(btnOff)
-        root.addView(clockRow)
-        root.addView(makeSectionLabel(getString(R.string.sec_dock_pos)))
+        leftColumn.addView(clockRow)
+        leftColumn.addView(makeSectionLabel(getString(R.string.sec_dock_pos)))
         var selectedSide = currentSide
         val dockRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         val btnLeft = makeActionButton(getString(R.string.pos_left)).apply {
@@ -1283,9 +1319,9 @@ class MainActivity : Activity() {
         dockRow.addView(btnLeft)
         dockRow.addView(btnBottom)
         dockRow.addView(btnRight)
-        root.addView(dockRow)
+        leftColumn.addView(dockRow)
 
-        root.addView(makeSectionLabel(getString(R.string.sec_opacity)))
+        rightColumn.addView(makeSectionLabel(getString(R.string.sec_opacity)))
         val opacities = listOf(0, 25, 50, 75, 100)
         var selectedOp = prefs.getInt("panel_opacity_pct", 75)
         val opRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
@@ -1339,13 +1375,15 @@ class MainActivity : Activity() {
             opRow.addView(btn)
         }
         refreshOpButtons()
-        root.addView(opRow)
+        rightColumn.addView(opRow)
 
-        root.addView(makeSectionLabel(getString(R.string.sec_widgets_fmt, widgetEntries.size)))
-        val btnAddWidget = makeActionButton(getString(R.string.btn_add_widget))
-        root.addView(btnAddWidget)
+        rightColumn.addView(makeSectionLabel(getString(R.string.sec_widgets_fmt, widgetEntries.size)))
+        val btnAddWidget = makeActionButton(getString(R.string.btn_add_widget)).apply {
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        }
+        rightColumn.addView(btnAddWidget)
 
-        root.addView(makeSectionLabel(getString(R.string.sec_wallpaper)))
+        rightColumn.addView(makeSectionLabel(getString(R.string.sec_wallpaper)))
         val wallRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         val btnPickWall = makeActionButton(getString(R.string.btn_pick_photo)).apply {
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(6) }
@@ -1355,11 +1393,18 @@ class MainActivity : Activity() {
         }
         wallRow.addView(btnPickWall)
         wallRow.addView(btnResetWall)
-        root.addView(wallRow)
+        rightColumn.addView(wallRow)
 
         val btnClose = makeActionButton(getString(R.string.btn_close), isPrimary = true).apply {
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                topMargin = dp(18)
+            layoutParams = if (useTwoColumns) {
+                LinearLayout.LayoutParams(dp(240), ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    gravity = Gravity.CENTER_HORIZONTAL
+                    topMargin = dp(14)
+                }
+            } else {
+                LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    topMargin = dp(18)
+                }
             }
         }
         root.addView(btnClose)
@@ -1416,6 +1461,15 @@ class MainActivity : Activity() {
         }
 
         dialog.show()
+        val targetW = if (useTwoColumns) {
+            (availW * 0.72f).toInt().coerceIn(dp(540), dp(700)).coerceAtMost((availW * 0.92f).toInt())
+        } else {
+            (availW * 0.92f).toInt().coerceAtMost(dp(440))
+        }
+        dialog.window?.apply {
+            setLayout(targetW, ViewGroup.LayoutParams.WRAP_CONTENT)
+            setDimAmount(0.45f)
+        }
         btnClose.post {
             btnClose.requestFocus()
         }
@@ -2018,42 +2072,110 @@ class MainActivity : Activity() {
 
     private fun getDockFavorites(): MutableList<String> {
         val raw = prefs.getString("dock_favorites", null)
-        if (raw == null || (raw.isEmpty() && !prefs.getBoolean("dock_initialized", false))) {
-            val defaults = mutableListOf<String>()
-            val commonIntents = listOf(
+        val hasV2Defaults = prefs.getBoolean("dock_defaults_v2", false)
+        val existing = if (raw.isNullOrEmpty()) {
+            mutableListOf()
+        } else {
+            raw.split(",").filter { it.isNotBlank() }.toMutableList()
+        }
+
+        val needsInitial = raw == null || (raw.isEmpty() && !prefs.getBoolean("dock_initialized", false))
+        if (!needsInitial && hasV2Defaults) {
+            return existing
+        }
+        if (allApps.isEmpty()) {
+            return existing
+        }
+
+        val launchablePkgs = allApps.asSequence()
+            .filter { !it.isLauncherSettings && it.shortcutIntentUri == null }
+            .map { it.packageName }
+            .toSet()
+        val knownAppOrShortcutIds = allApps.asSequence()
+            .filter { !it.isLauncherSettings }
+            .map { it.packageName }
+            .toSet()
+
+        val validExisting = existing.filter { entry ->
+            entry.startsWith("setting:") || entry in knownAppOrShortcutIds
+        }
+
+        if (!needsInitial && validExisting.size >= 4) {
+            prefs.edit().putBoolean("dock_defaults_v2", true).apply()
+            return existing
+        }
+
+        fun resolveFirstLaunchablePkg(intent: Intent): String? {
+            val direct = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                packageManager.resolveActivity(
+                    intent,
+                    PackageManager.ResolveInfoFlags.of(PackageManager.MATCH_DEFAULT_ONLY.toLong())
+                )
+            } else {
+                @Suppress("DEPRECATION")
+                packageManager.resolveActivity(intent, PackageManager.MATCH_DEFAULT_ONLY)
+            }?.activityInfo?.packageName
+            if (direct != null && direct != "android" && direct != packageName && direct in launchablePkgs) {
+                return direct
+            }
+            val candidates = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                packageManager.queryIntentActivities(intent, PackageManager.ResolveInfoFlags.of(0))
+            } else {
+                @Suppress("DEPRECATION")
+                packageManager.queryIntentActivities(intent, 0)
+            }
+            return candidates.asSequence()
+                .mapNotNull { it.activityInfo?.packageName }
+                .firstOrNull { it != "android" && it != packageName && it in launchablePkgs }
+        }
+
+        val defaults = validExisting.toMutableList()
+        val isTv = packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK)
+        val preferredIntents = if (isTv) {
+            listOf(
+                Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_APP_MARKET),
+                Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_APP_BROWSER),
+                Intent(Intent.ACTION_VIEW, Uri.parse("https://")),
+                Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_APP_MUSIC),
+                Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_APP_GALLERY)
+            )
+        } else {
+            listOf(
                 Intent(Intent.ACTION_DIAL),
-                Intent.createChooser(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_APP_MESSAGING), ""),
-                Intent.createChooser(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_APP_BROWSER), ""),
+                Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_APP_MESSAGING),
+                Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_APP_BROWSER),
+                Intent(Intent.ACTION_VIEW, Uri.parse("https://")),
                 Intent(android.provider.MediaStore.ACTION_IMAGE_CAPTURE)
             )
-            for (i in commonIntents) {
-                val res = packageManager.resolveActivity(i, PackageManager.MATCH_DEFAULT_ONLY)
-                val pkg = res?.activityInfo?.packageName
-                if (pkg != null && pkg != "android" && pkg != packageName && !defaults.contains(pkg)) {
-                    defaults.add(pkg)
-                }
-            }
-            if (defaults.size < 4 && allApps.isNotEmpty()) {
-                for (app in allApps) {
-                    if (app.isLauncherSettings) continue
-                    if (!defaults.contains(app.packageName)) {
-                        defaults.add(app.packageName)
-                    }
-                    if (defaults.size >= 4) break
-                }
-            }
-            if (defaults.isNotEmpty()) {
-                prefs.edit().putBoolean("dock_initialized", true).apply()
-                saveDockFavorites(defaults)
-            }
-            return defaults
         }
-        return if (raw.isEmpty()) mutableListOf() else raw.split(",").toMutableList()
+        for (intent in preferredIntents) {
+            if (defaults.size >= 4) break
+            val pkg = resolveFirstLaunchablePkg(intent)
+            if (pkg != null && !defaults.contains(pkg)) {
+                defaults.add(pkg)
+            }
+        }
+        if (defaults.size < 4) {
+            for (app in allApps) {
+                if (app.isLauncherSettings || app.shortcutIntentUri != null) continue
+                if (!defaults.contains(app.packageName)) {
+                    defaults.add(app.packageName)
+                }
+                if (defaults.size >= 4) break
+            }
+        }
+        if (defaults.isNotEmpty()) {
+            saveDockFavorites(defaults)
+        } else {
+            prefs.edit().putBoolean("dock_defaults_v2", true).apply()
+        }
+        return defaults
     }
 
     private fun saveDockFavorites(list: List<String>) {
         prefs.edit()
             .putBoolean("dock_initialized", true)
+            .putBoolean("dock_defaults_v2", true)
             .putString("dock_favorites", list.joinToString(","))
             .apply()
     }
