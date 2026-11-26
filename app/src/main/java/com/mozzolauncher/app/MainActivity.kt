@@ -140,8 +140,8 @@ class MainActivity : Activity() {
     private lateinit var appsAdapter: AppsAdapter
     private lateinit var settingsAdapter: SettingsAdapter
 
-    private lateinit var appWidgetManager: AppWidgetManager
-    private lateinit var appWidgetHost: AppWidgetHost
+    private var appWidgetManager: AppWidgetManager? = null
+    private var appWidgetHost: AppWidgetHost? = null
     private val widgetEntries = mutableListOf<WidgetEntry>()
     private val widgetCellViews = mutableMapOf<Int, FrameLayout>()
     private val widgetHostViews = mutableMapOf<Int, AppWidgetHostView>()
@@ -329,7 +329,7 @@ class MainActivity : Activity() {
     override fun onStart() {
         super.onStart()
         try {
-            appWidgetHost.startListening()
+            appWidgetHost?.startListening()
         } catch (_: Exception) {
         }
     }
@@ -337,7 +337,7 @@ class MainActivity : Activity() {
     override fun onStop() {
         super.onStop()
         try {
-            appWidgetHost.stopListening()
+            appWidgetHost?.stopListening()
         } catch (_: Exception) {
         }
     }
@@ -401,8 +401,20 @@ class MainActivity : Activity() {
     }
 
     private fun setupWidgetHost() {
-        appWidgetManager = AppWidgetManager.getInstance(this)
-        appWidgetHost = AppWidgetHost(this, APPWIDGET_HOST_ID)
+        appWidgetManager = try {
+            AppWidgetManager.getInstance(this)
+        } catch (_: Exception) {
+            null
+        }
+        appWidgetHost = if (appWidgetManager != null) {
+            try {
+                AppWidgetHost(this, APPWIDGET_HOST_ID)
+            } catch (_: Exception) {
+                null
+            }
+        } else {
+            null
+        }
     }
 
     private fun setupAdapters() {
@@ -603,6 +615,11 @@ class MainActivity : Activity() {
 
     private fun restoreAllWidgets() {
         widgetEntries.clear()
+        val awm = appWidgetManager
+        if (awm == null) {
+            rebuildWidgetsUI()
+            return
+        }
         val raw = prefs.getString("widgets_list_json", null)
         if (!raw.isNullOrEmpty()) {
             try {
@@ -611,16 +628,16 @@ class MainActivity : Activity() {
                     val obj = arr.getJSONObject(i)
                     val id = obj.getInt("id")
                     val h = obj.optInt("height", 150)
-                    if (appWidgetManager.getAppWidgetInfo(id) != null) {
+                    if (awm.getAppWidgetInfo(id) != null) {
                         widgetEntries.add(WidgetEntry(id, h))
                     } else {
-                        try { appWidgetHost.deleteAppWidgetId(id) } catch (_: Exception) {}
+                        try { appWidgetHost?.deleteAppWidgetId(id) } catch (_: Exception) {}
                     }
                 }
             } catch (_: Exception) {}
         } else {
             val legacyId = prefs.getInt("appwidget_id", -1)
-            if (legacyId != -1 && appWidgetManager.getAppWidgetInfo(legacyId) != null) {
+            if (legacyId != -1 && awm.getAppWidgetInfo(legacyId) != null) {
                 widgetEntries.add(WidgetEntry(legacyId, 160))
                 prefs.edit().remove("appwidget_id").apply()
                 saveWidgetEntries()
@@ -741,14 +758,14 @@ class MainActivity : Activity() {
             var hostView = widgetHostViews[entry.id]
 
             if (cellWrapper == null || hostView == null) {
-                val info = appWidgetManager.getAppWidgetInfo(entry.id) ?: continue
+                val info = appWidgetManager?.getAppWidgetInfo(entry.id) ?: continue
                 hostView = try {
-                    appWidgetHost.createView(this, entry.id, info).apply {
+                    appWidgetHost?.createView(this, entry.id, info)?.apply {
                         setAppWidget(entry.id, info)
                     }
                 } catch (_: Exception) {
-                    continue
-                }
+                    null
+                } ?: continue
                 cellWrapper = createWidgetCellWrapper(entry, hostView)
                 widgetCellViews[entry.id] = cellWrapper
                 widgetHostViews[entry.id] = hostView
@@ -820,7 +837,7 @@ class MainActivity : Activity() {
                     }
                     4 -> {
                         widgetEntries.removeAt(index)
-                        try { appWidgetHost.deleteAppWidgetId(entry.id) } catch (_: Exception) {}
+                        try { appWidgetHost?.deleteAppWidgetId(entry.id) } catch (_: Exception) {}
                         saveWidgetEntries()
                         rebuildWidgetsUI()
                         focusDrawerButtonOnHome()
@@ -834,14 +851,19 @@ class MainActivity : Activity() {
 
     private fun cleanupPendingWidget() {
         if (pendingWidgetId != -1) {
-            try { appWidgetHost.deleteAppWidgetId(pendingWidgetId) } catch (_: Exception) {}
+            try { appWidgetHost?.deleteAppWidgetId(pendingWidgetId) } catch (_: Exception) {}
             pendingWidgetId = -1
         }
     }
 
     private fun pickNewWidget() {
+        val awm = appWidgetManager
+        if (awm == null || appWidgetHost == null) {
+            Toast.makeText(this, getString(R.string.toast_widgets_unsupported_tv), Toast.LENGTH_LONG).show()
+            return
+        }
         val providers = try {
-            appWidgetManager.installedProviders
+            awm.installedProviders
         } catch (_: Exception) {
             emptyList()
         }
@@ -991,16 +1013,25 @@ class MainActivity : Activity() {
                 focusDrawerButtonOnHome()
             }
         }
+        listContainer.getChildAt(0)?.let { firstRow ->
+            firstRow.post { firstRow.requestFocus() }
+        }
     }
 
     private fun startBindSelectedWidget(info: AppWidgetProviderInfo) {
+        val awm = appWidgetManager
+        val host = appWidgetHost
+        if (awm == null || host == null) {
+            Toast.makeText(this, getString(R.string.toast_widgets_unsupported_tv), Toast.LENGTH_LONG).show()
+            return
+        }
         try {
-            val appWidgetId = appWidgetHost.allocateAppWidgetId()
+            val appWidgetId = host.allocateAppWidgetId()
             pendingWidgetId = appWidgetId
             val bound = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                appWidgetManager.bindAppWidgetIdIfAllowed(appWidgetId, info.profile, info.provider, null)
+                awm.bindAppWidgetIdIfAllowed(appWidgetId, info.profile, info.provider, Bundle())
             } else {
-                appWidgetManager.bindAppWidgetIdIfAllowed(appWidgetId, info.provider)
+                awm.bindAppWidgetIdIfAllowed(appWidgetId, info.provider)
             }
             if (bound) {
                 configureOrAddWidget(appWidgetId)
@@ -1012,6 +1043,11 @@ class MainActivity : Activity() {
                         putExtra(AppWidgetManager.EXTRA_APPWIDGET_PROVIDER_PROFILE, info.profile)
                     }
                 }
+                if (bindIntent.resolveActivity(packageManager) == null) {
+                    cleanupPendingWidget()
+                    Toast.makeText(this, getString(R.string.toast_widget_bind_blocked), Toast.LENGTH_LONG).show()
+                    return
+                }
                 startActivityForResult(bindIntent, REQ_BIND_WIDGET)
             }
         } catch (_: Exception) {
@@ -1021,8 +1057,10 @@ class MainActivity : Activity() {
     }
 
     private fun configureOrAddWidget(appWidgetId: Int) {
-        val info = appWidgetManager.getAppWidgetInfo(appWidgetId)
-        if (info == null) {
+        val awm = appWidgetManager
+        val host = appWidgetHost
+        val info = awm?.getAppWidgetInfo(appWidgetId)
+        if (info == null || host == null) {
             cleanupPendingWidget()
             Toast.makeText(this, getString(R.string.toast_widget_error), Toast.LENGTH_SHORT).show()
             return
@@ -1034,7 +1072,7 @@ class MainActivity : Activity() {
         }
         if (info.configure != null && !isOptional) {
             try {
-                appWidgetHost.startAppWidgetConfigureActivityForResult(
+                host.startAppWidgetConfigureActivityForResult(
                     this,
                     appWidgetId,
                     0,
@@ -1055,7 +1093,7 @@ class MainActivity : Activity() {
     }
 
     private fun finishAddingWidget(appWidgetId: Int) {
-        val info = appWidgetManager.getAppWidgetInfo(appWidgetId)
+        val info = appWidgetManager?.getAppWidgetInfo(appWidgetId)
         val initialHeight = if (info != null && info.minHeight > 0) {
             ((info.minHeight / resources.displayMetrics.density).toInt() + 50).coerceIn(190, 440)
         } else {

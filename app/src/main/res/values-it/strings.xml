@@ -66,4 +66,6 @@
     <string name="toast_widget_error">Impossibile aggiungere questo widget</string>
     <string name="toast_no_file_picker">Nessun gestore file disponibile su questo dispositivo</string>
     <string name="toast_drawer_error_fmt">Errore drawer: %1$s</string>
+    <string name="toast_widgets_unsupported_tv">I widget non sono supportati dal sistema di questa TV</string>
+    <string name="toast_widget_bind_blocked">Questo dispositivo blocca i widget di terze parti (schermata permessi assente)</string>
 </resources>
