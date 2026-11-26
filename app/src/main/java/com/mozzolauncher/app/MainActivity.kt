@@ -1,6 +1,7 @@
 package com.mozzolauncher.app
 
 import android.app.Activity
+import android.app.ActivityManager
 import android.app.AlertDialog
 import android.appwidget.AppWidgetHost
 import android.appwidget.AppWidgetHostView
@@ -226,15 +227,19 @@ class MainActivity : Activity() {
         setupAdapters()
         setupListeners()
 
-        applySavedWallpaper()
-        loadInstalledApps()
         applyDockSide(prefs.getString("dock_side", "left") ?: "left")
         applyPanelOpacity(prefs.getInt("panel_opacity_pct", 75))
         applyClockVisibility(prefs.getBoolean("show_clock", true))
         refreshClockFormat()
-        restoreAllWidgets()
-        handleInstallShortcutIntent(intent)
         focusDrawerButtonOnHome()
+
+        rootContainer.post {
+            if (isFinishing || isDestroyed) return@post
+            applySavedWallpaper()
+            loadInstalledApps()
+            restoreAllWidgets()
+            handleInstallShortcutIntent(intent)
+        }
 
         val pkgFilter = IntentFilter().apply {
             addAction(Intent.ACTION_PACKAGE_ADDED)
@@ -1456,10 +1461,17 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun isLowRamDevice(): Boolean {
+        val am = getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
+        return am?.isLowRamDevice == true
+    }
+
     private fun createMozzoWaveBitmap(): Bitmap {
         val dm = resources.displayMetrics
-        val w = dm.widthPixels.coerceIn(720, 1920)
-        val h = dm.heightPixels.coerceIn(720, 1920)
+        val maxSide = if (isLowRamDevice()) 960 else 1920
+        val minSide = if (isLowRamDevice()) 480 else 720
+        val w = dm.widthPixels.coerceIn(minSide, maxSide)
+        val h = dm.heightPixels.coerceIn(minSide, maxSide)
         val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bmp)
         val paint = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -1548,7 +1560,8 @@ class MainActivity : Activity() {
         val destFile = File(filesDir, "custom_wallpaper.img")
         if (prefs.getBoolean("has_custom_wallpaper", false) && destFile.exists()) {
             val dm = resources.displayMetrics
-            val maxDim = maxOf(dm.widthPixels, dm.heightPixels, 1920).coerceAtMost(2560)
+            val cap = if (isLowRamDevice()) 1080 else 2560
+            val maxDim = maxOf(dm.widthPixels, dm.heightPixels, if (isLowRamDevice()) 960 else 1920).coerceAtMost(cap)
             val bmp = decodeSampledBitmap(destFile, maxDim)
             if (bmp != null) {
                 wallpaperView.setImageBitmap(bmp)
