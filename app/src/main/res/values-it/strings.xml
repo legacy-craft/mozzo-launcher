@@ -68,4 +68,19 @@
     <string name="toast_drawer_error_fmt">Errore drawer: %1$s</string>
     <string name="toast_widgets_unsupported_tv">I widget non sono supportati dal sistema di questa TV</string>
     <string name="toast_widget_bind_blocked">Questo dispositivo blocca i widget di terze parti (schermata permessi assente)</string>
+    <string name="kw_wifi">wifi internet rete connessione</string>
+    <string name="kw_tethering">hotspot tethering router usb wifi condividi rete</string>
+    <string name="kw_bluetooth">bluetooth dispositivi cuffie</string>
+    <string name="kw_display">schermo luminosita carattere display</string>
+    <string name="kw_sound">audio suono suoneria vibrazione volume</string>
+    <string name="kw_battery">batteria risparmio energetico ricarica</string>
+    <string name="kw_apps">applicazioni gestisci disinstalla app</string>
+    <string name="kw_storage">archiviazione memoria spazio</string>
+    <string name="kw_location">posizione localizzazione gps</string>
+    <string name="kw_security">sicurezza impronta sblocco password</string>
+    <string name="kw_date">data ora fuso orario</string>
+    <string name="kw_keyboard">lingua tastiera immissione</string>
+    <string name="kw_about">info telefono sistema versione android</string>
+    <string name="kw_system">impostazioni sistema</string>
+    <string name="kw_mozzo_settings">impostazioni mozzo sfondo icone dock launcher</string>
 </resources>

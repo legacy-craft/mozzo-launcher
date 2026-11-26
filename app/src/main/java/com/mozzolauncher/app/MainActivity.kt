@@ -185,20 +185,20 @@ class MainActivity : Activity() {
 
     private val settingShortcuts by lazy {
         listOf(
-            SettingShortcut(getString(R.string.set_wifi), "wifi internet network wireless connection rete connessione", Settings.ACTION_WIFI_SETTINGS),
-            SettingShortcut(getString(R.string.set_tethering), "hotspot tethering router usb wifi share connection condividi rete", Settings.ACTION_WIRELESS_SETTINGS),
-            SettingShortcut(getString(R.string.set_bluetooth), "bluetooth devices headphones dispositivi cuffie", Settings.ACTION_BLUETOOTH_SETTINGS),
-            SettingShortcut(getString(R.string.set_display), "display screen brightness font text schermo luminosita carattere", Settings.ACTION_DISPLAY_SETTINGS),
-            SettingShortcut(getString(R.string.set_sound), "sound volume ringtone vibration audio suono suoneria vibrazione", Settings.ACTION_SOUND_SETTINGS),
-            SettingShortcut(getString(R.string.set_battery), "battery power saving charging batteria risparmio energetico ricarica", Intent.ACTION_POWER_USAGE_SUMMARY),
-            SettingShortcut(getString(R.string.set_apps), "apps applications manage uninstall applicazioni gestisci disinstalla", Settings.ACTION_APPLICATION_SETTINGS),
-            SettingShortcut(getString(R.string.set_storage), "storage memory space archiviazione memoria spazio", Settings.ACTION_INTERNAL_STORAGE_SETTINGS),
-            SettingShortcut(getString(R.string.set_location), "location gps position posizione localizzazione", Settings.ACTION_LOCATION_SOURCE_SETTINGS),
-            SettingShortcut(getString(R.string.set_security), "security fingerprint pin password lock sicurezza impronta sblocco", Settings.ACTION_SECURITY_SETTINGS),
-            SettingShortcut(getString(R.string.set_date), "date time timezone data ora fuso orario", Settings.ACTION_DATE_SETTINGS),
-            SettingShortcut(getString(R.string.set_keyboard), "language keyboard input lingua tastiera immissione", Settings.ACTION_INPUT_METHOD_SETTINGS),
-            SettingShortcut(getString(R.string.set_about), "about phone device info system android info telefono sistema versione", Settings.ACTION_DEVICE_INFO_SETTINGS),
-            SettingShortcut(getString(R.string.set_system), "system settings impostazioni sistema", Settings.ACTION_SETTINGS)
+            SettingShortcut(getString(R.string.set_wifi), "wifi internet network wireless connection ${getString(R.string.kw_wifi)}", Settings.ACTION_WIFI_SETTINGS),
+            SettingShortcut(getString(R.string.set_tethering), "hotspot tethering router usb wifi share connection ${getString(R.string.kw_tethering)}", Settings.ACTION_WIRELESS_SETTINGS),
+            SettingShortcut(getString(R.string.set_bluetooth), "bluetooth devices headphones ${getString(R.string.kw_bluetooth)}", Settings.ACTION_BLUETOOTH_SETTINGS),
+            SettingShortcut(getString(R.string.set_display), "display screen brightness font text ${getString(R.string.kw_display)}", Settings.ACTION_DISPLAY_SETTINGS),
+            SettingShortcut(getString(R.string.set_sound), "sound volume ringtone vibration ${getString(R.string.kw_sound)}", Settings.ACTION_SOUND_SETTINGS),
+            SettingShortcut(getString(R.string.set_battery), "battery power saving charging ${getString(R.string.kw_battery)}", Intent.ACTION_POWER_USAGE_SUMMARY),
+            SettingShortcut(getString(R.string.set_apps), "apps applications manage uninstall ${getString(R.string.kw_apps)}", Settings.ACTION_APPLICATION_SETTINGS),
+            SettingShortcut(getString(R.string.set_storage), "storage memory space ${getString(R.string.kw_storage)}", Settings.ACTION_INTERNAL_STORAGE_SETTINGS),
+            SettingShortcut(getString(R.string.set_location), "location gps position ${getString(R.string.kw_location)}", Settings.ACTION_LOCATION_SOURCE_SETTINGS),
+            SettingShortcut(getString(R.string.set_security), "security fingerprint pin password lock ${getString(R.string.kw_security)}", Settings.ACTION_SECURITY_SETTINGS),
+            SettingShortcut(getString(R.string.set_date), "date time timezone ${getString(R.string.kw_date)}", Settings.ACTION_DATE_SETTINGS),
+            SettingShortcut(getString(R.string.set_keyboard), "language keyboard input ${getString(R.string.kw_keyboard)}", Settings.ACTION_INPUT_METHOD_SETTINGS),
+            SettingShortcut(getString(R.string.set_about), "about phone device info system android ${getString(R.string.kw_about)}", Settings.ACTION_DEVICE_INFO_SETTINGS),
+            SettingShortcut(getString(R.string.set_system), "system settings ${getString(R.string.kw_system)}", Settings.ACTION_SETTINGS)
         )
     }
 
@@ -1127,6 +1127,8 @@ class MainActivity : Activity() {
                 text = label
                 textSize = 14f
                 gravity = Gravity.CENTER
+                maxLines = 1
+                ellipsize = TextUtils.TruncateAt.END
                 isFocusable = true
                 isFocusableInTouchMode = false
                 isClickable = true
@@ -1892,7 +1894,7 @@ class MainActivity : Activity() {
             AppItem(
                 id = "internal.mozzo.settings",
                 label = getString(R.string.settings_app_label),
-                normalizedLabel = "mozzo settings launcher wallpaper dock icons impostazioni sfondo icone",
+                normalizedLabel = "mozzo settings launcher wallpaper dock icons ${normalize(getString(R.string.kw_mozzo_settings))}",
                 packageName = "internal.mozzo.settings",
                 activityName = "",
                 icon = launcherIcon,

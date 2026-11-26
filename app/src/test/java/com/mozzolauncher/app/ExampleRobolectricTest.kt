@@ -262,4 +262,32 @@ class ExampleRobolectricTest {
     val afterW = (drawer.layoutParams as FrameLayout.LayoutParams).width
     assertTrue(afterW > beforeW)
   }
+
+  @Test
+  fun `all supported locales resolve localized strings and format arguments`() {
+    val baseContext = ApplicationProvider.getApplicationContext<Context>()
+    val locales = listOf(
+      java.util.Locale.ENGLISH,
+      java.util.Locale.ITALIAN,
+      java.util.Locale.forLanguageTag("es"),
+      java.util.Locale.FRENCH,
+      java.util.Locale.GERMAN,
+      java.util.Locale.forLanguageTag("pt"),
+      java.util.Locale.forLanguageTag("nl"),
+      java.util.Locale.SIMPLIFIED_CHINESE
+    )
+    for (locale in locales) {
+      val cfg = android.content.res.Configuration(baseContext.resources.configuration).apply {
+        setLocale(locale)
+      }
+      val localized = baseContext.createConfigurationContext(cfg)
+      assertTrue(localized.getString(R.string.settings_title).isNotBlank())
+      assertTrue(localized.getString(R.string.kw_wifi).isNotBlank())
+      assertTrue(localized.getString(R.string.kw_mozzo_settings).isNotBlank())
+      assertTrue(localized.getString(R.string.sec_widgets_fmt, 2).contains("2"))
+      assertTrue(localized.getString(R.string.dock_pick_icon_title, "Test").contains("Test"))
+      assertTrue(localized.getString(R.string.toast_shortcut_added, "Site").contains("Site"))
+      assertTrue(localized.getString(R.string.toast_drawer_error_fmt, "Err").contains("Err"))
+    }
+  }
 }

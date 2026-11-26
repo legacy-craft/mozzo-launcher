@@ -68,4 +68,19 @@
     <string name="toast_drawer_error_fmt">Drawer error: %1$s</string>
     <string name="toast_widgets_unsupported_tv">Widgets are not supported by this TV system</string>
     <string name="toast_widget_bind_blocked">This device blocks third-party widgets (missing system permission screen)</string>
+    <string name="kw_wifi">wifi internet network wireless connection</string>
+    <string name="kw_tethering">hotspot tethering router usb wifi share connection</string>
+    <string name="kw_bluetooth">bluetooth devices headphones</string>
+    <string name="kw_display">display screen brightness font text</string>
+    <string name="kw_sound">sound volume ringtone vibration audio</string>
+    <string name="kw_battery">battery power saving charging</string>
+    <string name="kw_apps">apps applications manage uninstall</string>
+    <string name="kw_storage">storage memory space</string>
+    <string name="kw_location">location gps position</string>
+    <string name="kw_security">security fingerprint pin password lock</string>
+    <string name="kw_date">date time timezone</string>
+    <string name="kw_keyboard">language keyboard input</string>
+    <string name="kw_about">about phone device info system android version</string>
+    <string name="kw_system">system settings</string>
+    <string name="kw_mozzo_settings">mozzo settings launcher wallpaper dock icons</string>
 </resources>
