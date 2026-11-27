@@ -177,7 +177,7 @@ class MainActivity : Activity() {
     private val REQ_EXPORT_SETTINGS = 1005
     private val REQ_IMPORT_SETTINGS = 1006
     private val APPWIDGET_HOST_ID = 2048
-    private val WIDGET_CELL_HEIGHT_DP = 76
+    private val WIDGET_CELL_HEIGHT_DP = 104
 
     private val settingShortcuts by lazy {
         listOf(
@@ -269,7 +269,7 @@ class MainActivity : Activity() {
             insetRight = bars.right
 
             val cLp = clockContainer.layoutParams as FrameLayout.LayoutParams
-            cLp.topMargin = insetTop + dp(14)
+            cLp.topMargin = insetTop + dp(10)
             clockContainer.layoutParams = cLp
 
             applyDockSide(prefs.getString("dock_side", "left") ?: "left")
@@ -296,6 +296,7 @@ class MainActivity : Activity() {
         super.onConfigurationChanged(newConfig)
         applyDockSide(prefs.getString("dock_side", "left") ?: "left")
         rebuildWidgetsUI()
+        ViewCompat.requestApplyInsets(rootContainer)
         if (!canUseSystemWallpaper() && !prefs.getBoolean("has_custom_wallpaper", false)) {
             applySavedWallpaper()
         }
@@ -331,17 +332,59 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun isFocusInsideEditBanner(): Boolean {
+        if (editModeBanner.visibility != View.VISIBLE) return false
+        var cur: View? = currentFocus
+        while (cur != null) {
+            if (cur === editModeBanner) return true
+            cur = cur.parent as? View
+        }
+        return false
+    }
+
+    private fun focusActiveEditedTarget(): Boolean {
+        val wId = editingWidgetId
+        if (wId != null) {
+            return widgetCellViews[wId]?.requestFocus() == true
+        }
+        val dockEntry = movingDockEntry
+        if (dockEntry != null) {
+            for (i in 0 until dockFavoritesContainer.childCount) {
+                val child = dockFavoritesContainer.getChildAt(i)
+                if (child.isSelected) {
+                    return child.requestFocus()
+                }
+            }
+        }
+        return false
+    }
+
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         if (event.action == KeyEvent.ACTION_DOWN && (movingDockEntry != null || editingWidgetId != null)) {
+            if (event.keyCode == KeyEvent.KEYCODE_BACK) {
+                exitEditMode(commit = false)
+                return true
+            }
+            if (isFocusInsideEditBanner()) {
+                when (event.keyCode) {
+                    KeyEvent.KEYCODE_DPAD_UP -> {
+                        if (focusActiveEditedTarget()) return true
+                    }
+                    KeyEvent.KEYCODE_DPAD_DOWN -> return true
+                    KeyEvent.KEYCODE_DPAD_LEFT,
+                    KeyEvent.KEYCODE_DPAD_RIGHT,
+                    KeyEvent.KEYCODE_DPAD_CENTER,
+                    KeyEvent.KEYCODE_ENTER,
+                    KeyEvent.KEYCODE_NUMPAD_ENTER -> {
+                        return super.dispatchKeyEvent(event)
+                    }
+                }
+            }
             when (event.keyCode) {
                 KeyEvent.KEYCODE_DPAD_CENTER,
                 KeyEvent.KEYCODE_ENTER,
                 KeyEvent.KEYCODE_NUMPAD_ENTER -> {
                     exitEditMode(commit = true)
-                    return true
-                }
-                KeyEvent.KEYCODE_BACK -> {
-                    exitEditMode(commit = false)
                     return true
                 }
                 KeyEvent.KEYCODE_DPAD_UP,
@@ -662,7 +705,7 @@ class MainActivity : Activity() {
         val minWdp = (info.minWidth / density).toInt()
         val minHdp = (info.minHeight / density).toInt()
         val spanX = if (minWdp > 0) ((minWdp + 30) / 70).coerceIn(1, maxCols) else minOf(4, maxCols)
-        val spanY = if (minHdp > 0) ((minHdp + 30) / 70).coerceIn(1, 6) else 2
+        val spanY = if (minHdp > 0) ((minHdp + 45) / 100).coerceIn(1, 6) else 2
         return spanX to spanY
     }
 
@@ -747,18 +790,43 @@ class MainActivity : Activity() {
     private fun getWidgetGridUnitWidthPx(cols: Int): Int {
         val colW = homeCenterColumn.layoutParams?.width ?: 0
         val availW = when {
-            widgetsContainer.width > 0 -> widgetsContainer.width
             colW > 0 -> colW
+            widgetsContainer.width > 0 -> widgetsContainer.width
             else -> (resources.displayMetrics.widthPixels - dp(100)).coerceAtLeast(dp(180))
         }
         return (availW / cols).coerceAtLeast(dp(44))
     }
 
+    private fun getWidgetGridUnitHeightPx(): Int {
+        val isWide = resources.displayMetrics.widthPixels > resources.displayMetrics.heightPixels
+        val availH = if (widgetsScrollView.height > 0 && !isWide) {
+            widgetsScrollView.height
+        } else {
+            val showClock = prefs.getBoolean("show_clock", true)
+            val side = prefs.getString("dock_side", "left") ?: "left"
+            val iconSizeDp = prefs.getInt("icon_size_dp", 48)
+            val topReserve = insetTop + (if (showClock) dp(120) else dp(24)) + dp(8)
+            val bottomReserve = if (side == "bottom") {
+                dp(iconSizeDp + 18) + insetBottom + dp(16)
+            } else {
+                dp(16) + insetBottom + dp(16)
+            }
+            (resources.displayMetrics.heightPixels - topReserve - bottomReserve).coerceAtLeast(dp(180))
+        }
+        val targetRows = if (isWide) {
+            if (availH < dp(280)) 2 else 3
+        } else {
+            5
+        }
+        return (availH / targetRows).coerceIn(dp(88), dp(136))
+    }
+
     private fun syncWidgetFocusAndSizes() {
         val cols = getWidgetGridCols()
         val unitW = getWidgetGridUnitWidthPx(cols)
-        val unitH = dp(WIDGET_CELL_HEIGHT_DP)
+        val unitH = getWidgetGridUnitHeightPx()
         val fullGap = dp(3) * 2
+        val innerPad = dp(4)
         val density = resources.displayMetrics.density.coerceAtLeast(1f)
         val dockSide = prefs.getString("dock_side", "left") ?: "left"
 
@@ -766,7 +834,7 @@ class MainActivity : Activity() {
             val effX = entry.spanX.coerceIn(1, cols)
             val effY = entry.spanY.coerceIn(1, 6)
             val itemW = (unitW * effX - fullGap).coerceAtLeast(dp(40))
-            val itemH = (unitH * effY - fullGap).coerceAtLeast(dp(56))
+            val itemH = (unitH * effY - fullGap).coerceAtLeast(dp(72))
 
             val cell = widgetCellViews[entry.id]
             if (cell != null) {
@@ -775,7 +843,11 @@ class MainActivity : Activity() {
             }
             val host = widgetHostViews[entry.id]
             if (host != null) {
-                notifyWidgetSize(host, (itemW / density).toInt(), (itemH / density).toInt())
+                notifyWidgetSize(
+                    host,
+                    ((itemW - innerPad) / density).toInt(),
+                    ((itemH - innerPad) / density).toInt()
+                )
             }
         }
     }
@@ -818,6 +890,7 @@ class MainActivity : Activity() {
         }
 
         cellWrapper.isFocusable = true
+        cellWrapper.setPadding(dp(2), dp(2), dp(2), dp(2))
         cellWrapper.setBackgroundResource(R.drawable.bg_tv_focus_item)
         cellWrapper.setOnClickListener {
             val activeId = editingWidgetId ?: return@setOnClickListener
@@ -858,9 +931,10 @@ class MainActivity : Activity() {
         }
 
         val unitW = getWidgetGridUnitWidthPx(cols)
-        val unitH = dp(WIDGET_CELL_HEIGHT_DP)
+        val unitH = getWidgetGridUnitHeightPx()
         val halfGap = dp(3)
         val fullGap = halfGap * 2
+        val innerPad = dp(4)
         val density = resources.displayMetrics.density.coerceAtLeast(1f)
         val dockSide = prefs.getString("dock_side", "left") ?: "left"
 
@@ -886,7 +960,7 @@ class MainActivity : Activity() {
             val effX = entry.spanX.coerceIn(1, cols)
             val effY = entry.spanY.coerceIn(1, 6)
             val itemW = (unitW * effX - fullGap).coerceAtLeast(dp(40))
-            val itemH = (unitH * effY - fullGap).coerceAtLeast(dp(56))
+            val itemH = (unitH * effY - fullGap).coerceAtLeast(dp(72))
 
             val colSpec = GridLayout.spec(GridLayout.UNDEFINED, effX)
             val rowSpec = GridLayout.spec(GridLayout.UNDEFINED, effY)
@@ -900,13 +974,19 @@ class MainActivity : Activity() {
             cellWrapper.nextFocusRightId = if (dockSide == "right") R.id.btnDrawerMozzo else View.NO_ID
 
             widgetsContainer.addView(cellWrapper)
-            notifyWidgetSize(hostView, (itemW / density).toInt(), (itemH / density).toInt())
+            notifyWidgetSize(
+                hostView,
+                ((itemW - innerPad) / density).toInt(),
+                ((itemH - innerPad) / density).toInt()
+            )
         }
 
         editingWidgetId?.let { activeId ->
-            widgetCellViews[activeId]?.post {
-                if (editingWidgetId == activeId) {
-                    widgetCellViews[activeId]?.requestFocus()
+            if (widgetEditMode != WidgetEditMode.RESIZE && !isFocusInsideEditBanner()) {
+                widgetCellViews[activeId]?.post {
+                    if (editingWidgetId == activeId && !isFocusInsideEditBanner()) {
+                        widgetCellViews[activeId]?.requestFocus()
+                    }
                 }
             }
         }
@@ -1390,7 +1470,7 @@ class MainActivity : Activity() {
                 isFocusable = true
                 isFocusableInTouchMode = false
                 isClickable = true
-                setPadding(dp(10), dp(10), dp(10), dp(10))
+                setPadding(dp(10), dp(8), dp(10), dp(8))
                 setTextColor(Color.WHITE)
                 setTypeface(null, if (isPrimary) Typeface.BOLD else Typeface.NORMAL)
                 background = GradientDrawable().apply {
@@ -1400,7 +1480,13 @@ class MainActivity : Activity() {
                 }
                 setOnFocusChangeListener { v, hasFocus ->
                     val gd = v.background as? GradientDrawable ?: return@setOnFocusChangeListener
-                    gd.setStroke(dp(if (hasFocus) 2 else 1), if (hasFocus) Color.WHITE else Color.parseColor("#334155")); v.invalidate()
+                    val strokeColor = when {
+                        hasFocus -> Color.WHITE
+                        isPrimary -> Color.parseColor("#38BDF8")
+                        else -> Color.parseColor("#334155")
+                    }
+                    gd.setStroke(dp(if (hasFocus) 2 else 1), strokeColor)
+                    v.invalidate()
                 }
             }
         }
@@ -1411,17 +1497,41 @@ class MainActivity : Activity() {
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(16), dp(20), dp(16))
+            setPadding(dp(18), dp(14), dp(18), dp(14))
         }
 
+        val headerRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            tag = "settings_header_row"
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply {
+                bottomMargin = dp(4)
+            }
+        }
         val headerTitle = TextView(this).apply {
             text = getString(R.string.settings_title)
             textSize = 18f
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
             setTypeface(null, Typeface.BOLD)
             setTextColor(Color.parseColor("#F8FAFC"))
-            setPadding(0, 0, 0, dp(6))
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                marginEnd = dp(10)
+            }
         }
-        root.addView(headerTitle)
+        val btnClose = makeActionButton(getString(R.string.btn_close), isPrimary = true).apply {
+            setPadding(dp(16), dp(7), dp(16), dp(7))
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        }
+        headerRow.addView(headerTitle)
+        headerRow.addView(btnClose)
+        root.addView(headerRow)
 
         val leftColumn: LinearLayout
         val rightColumn: LinearLayout
@@ -1455,7 +1565,7 @@ class MainActivity : Activity() {
             textSize = 13f
             setTypeface(null, Typeface.BOLD)
             setTextColor(Color.parseColor("#38BDF8"))
-            setPadding(0, dp(10), 0, dp(6))
+            setPadding(0, dp(8), 0, dp(4))
         }
 
         leftColumn.addView(makeSectionLabel(getString(R.string.sec_icon_size)))
@@ -1485,7 +1595,7 @@ class MainActivity : Activity() {
                 textSize = 14f
                 gravity = Gravity.CENTER
                 isFocusable = true
-                setPadding(0, dp(8), 0, dp(8))
+                setPadding(0, dp(7), 0, dp(7))
                 layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
                     marginEnd = if (sz != sizes.last()) dp(6) else 0
                 }
@@ -1609,7 +1719,7 @@ class MainActivity : Activity() {
                 textSize = 13f
                 gravity = Gravity.CENTER
                 isFocusable = true
-                setPadding(0, dp(8), 0, dp(8))
+                setPadding(0, dp(7), 0, dp(7))
                 layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
                     marginEnd = if (op != opacities.last()) dp(6) else 0
                 }
@@ -1648,38 +1758,49 @@ class MainActivity : Activity() {
         wallRow.addView(btnResetWall)
         rightColumn.addView(wallRow)
 
-        root.addView(makeSectionLabel(getString(R.string.sec_backup_system)))
+        val sysHeadersRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        }
+        val lblSetDefault = makeSectionLabel(getString(R.string.sec_set_default)).apply {
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                marginEnd = dp(6)
+            }
+        }
+        val lblBackup = makeSectionLabel(getString(R.string.sec_backup)).apply {
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 2f)
+        }
+        sysHeadersRow.addView(lblSetDefault)
+        sysHeadersRow.addView(lblBackup)
+        root.addView(sysHeadersRow)
+
         val sysRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         val btnDefaultLauncher = makeActionButton(getString(R.string.btn_default_launcher)).apply {
             textSize = 13f
+            setPadding(dp(6), dp(8), dp(6), dp(8))
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(6) }
         }
         val btnExport = makeActionButton(getString(R.string.btn_export)).apply {
             textSize = 13f
+            setPadding(dp(6), dp(8), dp(6), dp(8))
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(6) }
         }
         val btnImport = makeActionButton(getString(R.string.btn_import)).apply {
             textSize = 13f
+            setPadding(dp(6), dp(8), dp(6), dp(8))
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         }
         sysRow.addView(btnDefaultLauncher)
         sysRow.addView(btnExport)
         sysRow.addView(btnImport)
         root.addView(sysRow)
-
-        val btnClose = makeActionButton(getString(R.string.btn_close), isPrimary = true).apply {
-            layoutParams = if (useTwoColumns) {
-                LinearLayout.LayoutParams(dp(240), ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                    gravity = Gravity.CENTER_HORIZONTAL
-                    topMargin = dp(14)
-                }
-            } else {
-                LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                    topMargin = dp(18)
-                }
-            }
-        }
-        root.addView(btnClose)
 
         scroll.addView(root)
         updateDialogBg(selectedOp)
@@ -2107,14 +2228,19 @@ class MainActivity : Activity() {
             )
         } else {
             dockContainer.orientation = LinearLayout.VERTICAL
-            dockContainer.setPadding(dp(5), dp(6), dp(5), dp(6))
+            dockContainer.setPadding(
+                dp(5) + (if (isRight) 0 else insetLeft),
+                dp(6),
+                dp(5) + (if (isRight) insetRight else 0),
+                dp(6)
+            )
             dockLp.width = ViewGroup.LayoutParams.WRAP_CONTENT
             dockLp.height = ViewGroup.LayoutParams.WRAP_CONTENT
             dockLp.gravity = (if (isRight) Gravity.END else Gravity.START) or Gravity.CENTER_VERTICAL
             dockLp.setMargins(
-                if (isRight) 0 else insetLeft,
+                0,
                 dp(16) + insetTop,
-                if (isRight) insetRight else 0,
+                0,
                 dp(16) + insetBottom
             )
         }
@@ -2152,7 +2278,6 @@ class MainActivity : Activity() {
         drawerLp.marginEnd = 0
 
         val screenW = resources.displayMetrics.widthPixels
-        val isWide = screenW > resources.displayMetrics.heightPixels
         val dPad = dp(8)
         drawerLp.width = screenW - (dPad * 2) - insetLeft - insetRight
         drawerLp.height = ViewGroup.LayoutParams.MATCH_PARENT
@@ -2172,16 +2297,12 @@ class MainActivity : Activity() {
         }
 
         val iconSizeDp = prefs.getInt("icon_size_dp", 48)
-        val baseTop = if (prefs.getBoolean("show_clock", true)) dp(112) else dp(24)
+        val baseTop = if (prefs.getBoolean("show_clock", true)) dp(120) else dp(24)
         val topClockSpace = insetTop + baseTop
 
         if (isBottom) {
-            val sPad = dp(14)
-            homeLp.width = if (isWide) {
-                (screenW * 0.56f).toInt()
-            } else {
-                screenW - sPad * 2 - insetLeft - insetRight
-            }
+            val sPad = dp(12)
+            homeLp.width = (screenW - sPad * 2 - insetLeft - insetRight).coerceAtLeast(dp(180))
             homeCenterColumn.gravity = Gravity.CENTER_HORIZONTAL or Gravity.TOP
             homeLp.gravity = Gravity.CENTER_HORIZONTAL or Gravity.TOP
             val bottomDockReserve = dp(iconSizeDp + 18) + insetBottom
@@ -2196,13 +2317,12 @@ class MainActivity : Activity() {
             val outerEdge = dp(12)
             val oppGravity = if (isRight) Gravity.START else Gravity.END
 
-            val availW = screenW - dockSpace - outerEdge - insetLeft - insetRight
-            homeLp.width = if (isWide) (availW * 0.65f).toInt() else availW
-            homeCenterColumn.gravity = Gravity.CENTER_HORIZONTAL or Gravity.TOP
-            homeLp.gravity = oppGravity or Gravity.TOP
-
             val leftM = if (isRight) outerEdge + insetLeft else dockSpace + insetLeft
             val rightM = if (isRight) dockSpace + insetRight else outerEdge + insetRight
+            val availW = (screenW - leftM - rightM).coerceAtLeast(dp(180))
+            homeLp.width = availW
+            homeCenterColumn.gravity = Gravity.CENTER_HORIZONTAL or Gravity.TOP
+            homeLp.gravity = oppGravity or Gravity.TOP
             homeLp.setMargins(leftM, topClockSpace, rightM, dp(16) + insetBottom)
         }
         homeCenterColumn.layoutParams = homeLp
@@ -2213,7 +2333,7 @@ class MainActivity : Activity() {
         editModeBanner.layoutParams = bannerLp
 
         appsGridView.columnWidth = dp(iconSizeDp + 16)
-        widgetsContainer.post { syncWidgetFocusAndSizes() }
+        widgetsContainer.post { rebuildWidgetsUI() }
 
         renderDockFavorites()
     }
@@ -2757,12 +2877,16 @@ class MainActivity : Activity() {
     private fun updateEditModeBanner() {
         if (movingDockEntry == null && editingWidgetId == null) {
             editModeBanner.visibility = View.GONE
+            editModeBanner.tag = null
             editModeBanner.removeAllViews()
             return
         }
 
-        editModeBanner.removeAllViews()
-        editModeBanner.visibility = View.VISIBLE
+        val modeTag = when {
+            movingDockEntry != null -> "dock_move"
+            widgetEditMode == WidgetEditMode.MOVE -> "widget_move"
+            else -> "widget_resize"
+        }
 
         val msg = when {
             movingDockEntry != null -> getString(R.string.banner_dock_move)
@@ -2773,51 +2897,88 @@ class MainActivity : Activity() {
             }
         }
 
+        if (editModeBanner.visibility == View.VISIBLE && editModeBanner.tag == modeTag) {
+            editModeBanner.findViewWithTag<TextView>("edit_mode_label")?.text = msg
+            return
+        }
+
+        editModeBanner.tag = modeTag
+        editModeBanner.removeAllViews()
+        editModeBanner.orientation = LinearLayout.VERTICAL
+        editModeBanner.gravity = Gravity.CENTER_HORIZONTAL
+        editModeBanner.visibility = View.VISIBLE
+
         val label = TextView(this).apply {
+            tag = "edit_mode_label"
             text = msg
             textSize = 12f
+            gravity = Gravity.CENTER
             setTextColor(Color.parseColor("#F8FAFC"))
             maxLines = 2
             ellipsize = TextUtils.TruncateAt.END
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply {
-                marginEnd = dp(8)
-            }
+            )
         }
         editModeBanner.addView(label)
 
+        val buttonsRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply {
+                topMargin = dp(6)
+            }
+        }
+
         fun makePillButton(textLabel: String, isPrimary: Boolean = false, onClick: () -> Unit): TextView {
             return TextView(this).apply {
+                id = View.generateViewId()
                 text = textLabel
+                contentDescription = textLabel
                 textSize = 12f
                 setTypeface(null, Typeface.BOLD)
                 setTextColor(Color.WHITE)
                 gravity = Gravity.CENTER
-                isFocusable = false
+                isFocusable = true
+                isFocusableInTouchMode = false
                 isClickable = true
-                setPadding(dp(8), dp(5), dp(8), dp(5))
+                setPadding(dp(10), dp(7), dp(10), dp(7))
                 background = GradientDrawable().apply {
                     cornerRadius = dp(8).toFloat()
                     setColor(if (isPrimary) Color.parseColor("#0284C7") else Color.parseColor("#1E293B"))
                     setStroke(dp(1), if (isPrimary) Color.parseColor("#38BDF8") else Color.parseColor("#334155"))
+                }
+                setOnFocusChangeListener { v, hasFocus ->
+                    val gd = v.background as? GradientDrawable ?: return@setOnFocusChangeListener
+                    val strokeColor = when {
+                        hasFocus -> Color.WHITE
+                        isPrimary -> Color.parseColor("#38BDF8")
+                        else -> Color.parseColor("#334155")
+                    }
+                    gd.setStroke(dp(if (hasFocus) 2 else 1), strokeColor)
+                    v.invalidate()
                 }
                 layoutParams = LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.WRAP_CONTENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT
                 ).apply {
                     marginStart = dp(4)
+                    marginEnd = dp(4)
                 }
                 setOnClickListener { onClick() }
             }
         }
 
+        val rowButtons = mutableListOf<TextView>()
         if (editingWidgetId != null && widgetEditMode == WidgetEditMode.RESIZE) {
-            editModeBanner.addView(makePillButton("W-") { adjustEditingWidgetSpan(-1, 0) })
-            editModeBanner.addView(makePillButton("W+") { adjustEditingWidgetSpan(1, 0) })
-            editModeBanner.addView(makePillButton("H-") { adjustEditingWidgetSpan(0, -1) })
-            editModeBanner.addView(makePillButton("H+") { adjustEditingWidgetSpan(0, 1) })
+            rowButtons.add(makePillButton("W-") { adjustEditingWidgetSpan(-1, 0) }.apply { tag = "edit_btn_w_minus" })
+            rowButtons.add(makePillButton("W+") { adjustEditingWidgetSpan(1, 0) }.apply { tag = "edit_btn_w_plus" })
+            rowButtons.add(makePillButton("H-") { adjustEditingWidgetSpan(0, -1) }.apply { tag = "edit_btn_h_minus" })
+            rowButtons.add(makePillButton("H+") { adjustEditingWidgetSpan(0, 1) }.apply { tag = "edit_btn_h_plus" })
         }
 
         val doneBtn = makePillButton(getString(R.string.btn_done), isPrimary = true) {
@@ -2825,7 +2986,24 @@ class MainActivity : Activity() {
         }.apply {
             tag = "edit_mode_done_btn"
         }
-        editModeBanner.addView(doneBtn)
+        rowButtons.add(doneBtn)
+
+        for (i in rowButtons.indices) {
+            val btn = rowButtons[i]
+            btn.nextFocusLeftId = if (i > 0) rowButtons[i - 1].id else btn.id
+            btn.nextFocusRightId = if (i < rowButtons.lastIndex) rowButtons[i + 1].id else btn.id
+            buttonsRow.addView(btn)
+        }
+        editModeBanner.addView(buttonsRow)
+
+        if (editingWidgetId != null && widgetEditMode == WidgetEditMode.RESIZE) {
+            val firstResizeBtn = rowButtons.firstOrNull()
+            firstResizeBtn?.post {
+                if (editingWidgetId != null && widgetEditMode == WidgetEditMode.RESIZE) {
+                    firstResizeBtn.requestFocus()
+                }
+            }
+        }
     }
 
     private fun showDockItemMenu(entry: String, title: String, app: AppItem?) {
@@ -2929,7 +3107,7 @@ class MainActivity : Activity() {
             val app = appMap[entry] ?: continue
             val btn = ImageButton(this).apply {
                 layoutParams = makeItemLp()
-                setPadding(dp(2), dp(2), dp(2), dp(2))
+                setPadding(dp(3), dp(3), dp(3), dp(3))
                 scaleType = ImageView.ScaleType.FIT_CENTER
                 clearColorFilter()
                 setImageDrawable(app.icon)

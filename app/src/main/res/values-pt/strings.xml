@@ -3,7 +3,7 @@
     <string name="app_name">Mozzo Launcher</string>
     <string name="all_apps">Todos os apps</string>
     <string name="search_hint">Pesquisar apps ou configurações…</string>
-    <string name="settings_title">Configurações do Mozzo Launcher</string>
+    <string name="settings_title">Configurações Mozzo</string>
     <string name="settings_app_label">Configurações Mozzo</string>
     <string name="sec_icon_size">Tamanho dos ícones (Dock e Gaveta)</string>
     <string name="show_home_clock">Relógio na tela inicial</string>
@@ -76,8 +76,9 @@
     <string name="kw_about">sobre telefone dispositivo info sistema versao</string>
     <string name="kw_system">configuracoes definicoes sistema</string>
     <string name="kw_mozzo_settings">mozzo configuracoes papel parede icones dock launcher</string>
-    <string name="sec_backup_system">Sistema e Backup</string>
-    <string name="btn_default_launcher">App padrão</string>
+    <string name="sec_set_default">Padrão</string>
+    <string name="sec_backup">Backup</string>
+    <string name="btn_default_launcher">Definir</string>
     <string name="btn_export">Exportar</string>
     <string name="btn_import">Importar</string>
     <string name="btn_done">Concluir</string>
@@ -85,8 +86,8 @@
     <string name="toast_export_err">Erro ao exportar configurações</string>
     <string name="toast_import_ok">Configurações importadas</string>
     <string name="toast_import_err">Arquivo de backup inválido</string>
-    <string name="banner_dock_move">Mover ícone: setas ou toque no destino · OK para fixar</string>
-    <string name="banner_widget_move">Mover widget: setas ou toque no destino · OK para fixar</string>
-    <string name="banner_widget_resize_fmt">Tamanho (%1$d×%2$d): setas ou +/- · OK para salvar</string>
+    <string name="banner_dock_move">Mover ícone: setas ou toque · Concluir</string>
+    <string name="banner_widget_move">Mover widget: setas ou toque · Concluir</string>
+    <string name="banner_widget_resize_fmt">Tamanho (%1$d×%2$d): setas ou +/- · Concluir</string>
     <string name="widget_cell_fmt">%1$d × %2$d</string>
 </resources>

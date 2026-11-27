@@ -3,7 +3,7 @@
     <string name="app_name">Mozzo Launcher</string>
     <string name="all_apps">All Apps</string>
     <string name="search_hint">Search apps or settings…</string>
-    <string name="settings_title">Mozzo Launcher Settings</string>
+    <string name="settings_title">Mozzo Settings</string>
     <string name="settings_app_label">Mozzo Settings</string>
     <string name="sec_icon_size">Icon Size (Dock &amp; Drawer)</string>
     <string name="show_home_clock">Show Clock on Home</string>
@@ -76,8 +76,9 @@
     <string name="kw_about">about phone device info system android version</string>
     <string name="kw_system">system settings</string>
     <string name="kw_mozzo_settings">mozzo settings launcher wallpaper dock icons</string>
-    <string name="sec_backup_system">System &amp; Backup</string>
-    <string name="btn_default_launcher">Default App</string>
+    <string name="sec_set_default">Default</string>
+    <string name="sec_backup">Backup</string>
+    <string name="btn_default_launcher">Set</string>
     <string name="btn_export">Export</string>
     <string name="btn_import">Import</string>
     <string name="btn_done">Done</string>
@@ -85,8 +86,8 @@
     <string name="toast_export_err">Error exporting settings</string>
     <string name="toast_import_ok">Settings imported</string>
     <string name="toast_import_err">Invalid backup file</string>
-    <string name="banner_dock_move">Move icon: arrows or tap target · OK to place</string>
-    <string name="banner_widget_move">Move widget: arrows or tap target · OK to place</string>
-    <string name="banner_widget_resize_fmt">Resize (%1$d×%2$d): arrows or +/- · OK to save</string>
+    <string name="banner_dock_move">Move icon: arrows or tap target · Done</string>
+    <string name="banner_widget_move">Move widget: arrows or tap target · Done</string>
+    <string name="banner_widget_resize_fmt">Resize (%1$d×%2$d): arrows or +/- · Done</string>
     <string name="widget_cell_fmt">%1$d × %2$d</string>
 </resources>

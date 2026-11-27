@@ -136,8 +136,10 @@ class ExampleRobolectricTest {
     }
 
     val decor = dialog.window!!.decorView
+    val closeBtn = findTextView(decor, activity.getString(R.string.btn_close))!!
+    assertTrue(closeBtn.hasFocus())
     findTextView(decor, "64")!!.performClick()
-    findTextView(decor, activity.getString(R.string.btn_close))!!.performClick()
+    closeBtn.performClick()
     Shadows.shadowOf(Looper.getMainLooper()).idle()
 
     assertFalse(dialog.isShowing)
@@ -288,7 +290,8 @@ class ExampleRobolectricTest {
       assertTrue(localized.getString(R.string.widget_move).isNotBlank())
       assertTrue(localized.getString(R.string.widget_resize).isNotBlank())
       assertTrue(localized.getString(R.string.dock_move).isNotBlank())
-      assertTrue(localized.getString(R.string.sec_backup_system).isNotBlank())
+      assertTrue(localized.getString(R.string.sec_set_default).isNotBlank())
+      assertTrue(localized.getString(R.string.sec_backup).isNotBlank())
       assertTrue(localized.getString(R.string.btn_default_launcher).isNotBlank())
       assertTrue(localized.getString(R.string.btn_export).isNotBlank())
       assertTrue(localized.getString(R.string.btn_import).isNotBlank())
@@ -336,9 +339,75 @@ class ExampleRobolectricTest {
     val tvDialog = ShadowAlertDialog.getLatestAlertDialog()
     assertTrue(tvDialog.isShowing)
     assertNotNull(tvDialog.window!!.decorView.findViewWithTag<View>("settings_columns_row"))
+    val tvHeaderRow = tvDialog.window!!.decorView.findViewWithTag<ViewGroup>("settings_header_row")
+    assertNotNull(tvHeaderRow)
     val tvDialogW = tvDialog.window!!.attributes.width
     // Capped <= 700dp (1400px at 2f) and noticeably narrower than 1920px TV screen
     assertTrue(tvDialogW in 1080..1400)
+    tvDialog.dismiss()
+    Shadows.shadowOf(Looper.getMainLooper()).idle()
+  }
+
+  @Test
+  fun `settings dialog places Close in header with focus and fits short landscape phone`() {
+    val controller = Robolectric.buildActivity(MainActivity::class.java).setup()
+    val activity = controller.get()
+    Shadows.shadowOf(Looper.getMainLooper()).idle()
+
+    fun findCloseButton(view: View): TextView? {
+      val label = activity.getString(R.string.btn_close)
+      if (view is TextView && view.text?.toString() == label) return view
+      if (view is ViewGroup) {
+        for (i in 0 until view.childCount) {
+          findCloseButton(view.getChildAt(i))?.let { return it }
+        }
+      }
+      return null
+    }
+
+    // 1) Narrow phone portrait still has Close inside header row
+    activity.resources.displayMetrics.density = 2f
+    activity.resources.displayMetrics.widthPixels = 720
+    activity.resources.displayMetrics.heightPixels = 1600
+    activity.onKeyDown(android.view.KeyEvent.KEYCODE_MENU, null)
+    Shadows.shadowOf(Looper.getMainLooper()).idle()
+
+    val portraitDlg = ShadowAlertDialog.getLatestAlertDialog()
+    val portraitHeader = portraitDlg.window!!.decorView.findViewWithTag<ViewGroup>("settings_header_row")
+    assertNotNull(portraitHeader)
+    val portraitClose = findCloseButton(portraitHeader)
+    assertNotNull(portraitClose)
+    assertTrue(portraitClose!!.hasFocus())
+    portraitDlg.dismiss()
+    Shadows.shadowOf(Looper.getMainLooper()).idle()
+
+    // 2) Short landscape phone (800dp x 360dp) fits Close cleanly without clipping
+    activity.resources.displayMetrics.widthPixels = 1600
+    activity.resources.displayMetrics.heightPixels = 720
+    val cfg = android.content.res.Configuration(activity.resources.configuration).apply {
+      orientation = android.content.res.Configuration.ORIENTATION_LANDSCAPE
+    }
+    activity.onConfigurationChanged(cfg)
+    Shadows.shadowOf(Looper.getMainLooper()).idle()
+
+    activity.onKeyDown(android.view.KeyEvent.KEYCODE_MENU, null)
+    Shadows.shadowOf(Looper.getMainLooper()).idle()
+
+    val landscapeDlg = ShadowAlertDialog.getLatestAlertDialog()
+    val decor = landscapeDlg.window!!.decorView
+    val landHeader = decor.findViewWithTag<ViewGroup>("settings_header_row")
+    assertNotNull(landHeader)
+    val landClose = findCloseButton(landHeader)
+    assertNotNull(landClose)
+    assertTrue(landClose!!.hasFocus())
+
+    val dialogW = landscapeDlg.window!!.attributes.width
+    val scroll = landHeader.parent.parent as android.widget.ScrollView
+    scroll.measure(
+      View.MeasureSpec.makeMeasureSpec(dialogW, View.MeasureSpec.EXACTLY),
+      View.MeasureSpec.makeMeasureSpec(720, View.MeasureSpec.AT_MOST)
+    )
+    assertTrue("Expected root height <= 720px on 360dp landscape, got ${scroll.getChildAt(0).measuredHeight}", scroll.getChildAt(0).measuredHeight <= 720)
   }
 
   private fun addLauncherActivity(
@@ -711,5 +780,153 @@ class ExampleRobolectricTest {
     activity.onConfigurationChanged(cfg)
     Shadows.shadowOf(Looper.getMainLooper()).idle()
     assertEquals(6, widgetsGrid.columnCount)
+  }
+
+  @Test
+  fun `right dock pads system bar inset like bottom dock and landscape widget column uses full available width`() {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    context.getSharedPreferences("mozzo_launcher_prefs", Context.MODE_PRIVATE)
+      .edit()
+      .putString("dock_side", "right")
+      .commit()
+
+    val controller = Robolectric.buildActivity(MainActivity::class.java).setup()
+    val activity = controller.get()
+    activity.resources.displayMetrics.density = 2f
+    activity.resources.displayMetrics.widthPixels = 1600
+    activity.resources.displayMetrics.heightPixels = 720
+    val cfg = android.content.res.Configuration(activity.resources.configuration).apply {
+      orientation = android.content.res.Configuration.ORIENTATION_LANDSCAPE
+    }
+    activity.onConfigurationChanged(cfg)
+    Shadows.shadowOf(Looper.getMainLooper()).idle()
+
+    val root = activity.findViewById<FrameLayout>(R.id.rootContainer)
+    val dock = activity.findViewById<LinearLayout>(R.id.dockContainer)
+    val homeCol = activity.findViewById<LinearLayout>(R.id.homeCenterColumn)
+
+    val insets = WindowInsetsCompat.Builder()
+      .setInsets(WindowInsetsCompat.Type.systemBars(), Insets.of(0, 48, 96, 0))
+      .build()
+    ViewCompat.dispatchApplyWindowInsets(root, insets)
+    Shadows.shadowOf(Looper.getMainLooper()).idle()
+
+    val dockLp = dock.layoutParams as FrameLayout.LayoutParams
+    assertEquals(0, dockLp.rightMargin)
+    assertTrue(dock.paddingRight >= 96)
+
+    // Full width minus right dock + insets + margins (~1600 - 132 - 96 - 24 = 1348), not squeezed to 65%
+    val homeLp = homeCol.layoutParams as FrameLayout.LayoutParams
+    assertTrue(homeLp.width >= 1280)
+  }
+
+  @Test
+  fun `edit mode banner stacks label above action row so Done button is never clipped`() {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val spm = Shadows.shadowOf(context.packageManager)
+    addLauncherActivity(spm, "com.b.one", "com.b.one.Main", "One")
+    addLauncherActivity(spm, "com.b.two", "com.b.two.Main", "Two")
+    val prefs = context.getSharedPreferences("mozzo_launcher_prefs", Context.MODE_PRIVATE)
+    prefs.edit()
+      .putBoolean("dock_initialized", true)
+      .putBoolean("dock_defaults_v2", true)
+      .putString("dock_favorites", "com.b.one,com.b.two")
+      .commit()
+
+    val controller = Robolectric.buildActivity(MainActivity::class.java).setup()
+    val activity = controller.get()
+    Shadows.shadowOf(Looper.getMainLooper()).idle()
+
+    val dockFavorites = activity.findViewById<LinearLayout>(R.id.dockFavoritesContainer)
+    dockFavorites.getChildAt(0).performLongClick()
+    Shadows.shadowOf(Looper.getMainLooper()).idle()
+    Shadows.shadowOf(ShadowAlertDialog.getLatestAlertDialog()).clickOnItem(0)
+    Shadows.shadowOf(Looper.getMainLooper()).idle()
+
+    val banner = activity.findViewById<LinearLayout>(R.id.editModeBanner)
+    assertEquals(View.VISIBLE, banner.visibility)
+    assertEquals(LinearLayout.VERTICAL, banner.orientation)
+    assertEquals(2, banner.childCount)
+
+    val doneBtn = banner.findViewWithTag<View>("edit_mode_done_btn")
+    assertNotNull(doneBtn)
+    assertTrue(doneBtn.isFocusable)
+    doneBtn.performClick()
+    Shadows.shadowOf(Looper.getMainLooper()).idle()
+    assertEquals(View.GONE, banner.visibility)
+  }
+
+  @Test
+  fun `widget resize 4 buttons receive focus support OK and directional navigation cleanly`() {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val awm = android.appwidget.AppWidgetManager.getInstance(context)
+    val sawm = Shadows.shadowOf(awm)
+    val widgetId = 77
+    val info = android.appwidget.AppWidgetProviderInfo().apply {
+      provider = android.content.ComponentName("com.test.w", "com.test.w.ClockWidget")
+      minWidth = 140
+      minHeight = 140
+      label = "Clock"
+    }
+    sawm.addBoundWidget(widgetId, info)
+
+    val prefs = context.getSharedPreferences("mozzo_launcher_prefs", Context.MODE_PRIVATE)
+    prefs.edit()
+      .putString("widgets_list_json", "[{\"id\":$widgetId,\"spanX\":2,\"spanY\":2}]")
+      .commit()
+
+    val controller = Robolectric.buildActivity(MainActivity::class.java).setup()
+    val activity = controller.get()
+    Shadows.shadowOf(Looper.getMainLooper()).idle()
+
+    val widgetsGrid = activity.findViewById<android.widget.GridLayout>(R.id.widgetsContainer)
+    assertEquals(1, widgetsGrid.childCount)
+
+    // Open widget context menu -> select "Resize" (index 1)
+    widgetsGrid.getChildAt(0).performLongClick()
+    Shadows.shadowOf(Looper.getMainLooper()).idle()
+    Shadows.shadowOf(ShadowAlertDialog.getLatestAlertDialog()).clickOnItem(1)
+    Shadows.shadowOf(Looper.getMainLooper()).idle()
+
+    val banner = activity.findViewById<LinearLayout>(R.id.editModeBanner)
+    assertEquals(View.VISIBLE, banner.visibility)
+
+    val btnWMinus = banner.findViewWithTag<TextView>("edit_btn_w_minus")
+    val btnWPlus = banner.findViewWithTag<TextView>("edit_btn_w_plus")
+    val btnHMinus = banner.findViewWithTag<TextView>("edit_btn_h_minus")
+    val btnHPlus = banner.findViewWithTag<TextView>("edit_btn_h_plus")
+    val btnDone = banner.findViewWithTag<TextView>("edit_mode_done_btn")
+    val buttons = listOf(btnWMinus, btnWPlus, btnHMinus, btnHPlus, btnDone)
+    assertTrue(buttons.all { it != null && it.isFocusable && it.isClickable })
+
+    // Initial focus starts on W-
+    assertTrue(btnWMinus.hasFocus())
+
+    // Focus navigation right across all 4 resize buttons and Done
+    assertEquals(btnWPlus.id, btnWMinus.nextFocusRightId)
+    assertEquals(btnHMinus.id, btnWPlus.nextFocusRightId)
+    assertEquals(btnHPlus.id, btnHMinus.nextFocusRightId)
+    assertEquals(btnDone.id, btnHPlus.nextFocusRightId)
+
+    assertTrue(btnWPlus.requestFocus())
+    assertTrue(btnWPlus.hasFocus())
+    btnWPlus.performClick()
+    Shadows.shadowOf(Looper.getMainLooper()).idle()
+    // Resizing keeps focus on the active button and updates span in prefs
+    assertTrue(btnWPlus.hasFocus())
+    assertTrue(prefs.getString("widgets_list_json", "")!!.contains("\"spanX\":3"))
+
+    assertTrue(btnHPlus.requestFocus())
+    assertTrue(btnHPlus.hasFocus())
+    btnHPlus.performClick()
+    Shadows.shadowOf(Looper.getMainLooper()).idle()
+    assertTrue(btnHPlus.hasFocus())
+    assertTrue(prefs.getString("widgets_list_json", "")!!.contains("\"spanY\":3"))
+
+    // Done exits edit mode
+    assertTrue(btnDone.requestFocus())
+    btnDone.performClick()
+    Shadows.shadowOf(Looper.getMainLooper()).idle()
+    assertEquals(View.GONE, banner.visibility)
   }
 }

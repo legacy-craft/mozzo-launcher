@@ -130,11 +130,12 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom|center_horizontal"
+        android:layout_marginHorizontal="12dp"
         android:layout_marginBottom="20dp"
         android:background="@drawable/bg_drawer_panel"
-        android:gravity="center_vertical"
-        android:orientation="horizontal"
-        android:paddingHorizontal="14dp"
+        android:gravity="center_horizontal"
+        android:orientation="vertical"
+        android:paddingHorizontal="12dp"
         android:paddingVertical="8dp"
         android:visibility="gone" />
 

@@ -3,7 +3,7 @@
     <string name="app_name">Mozzo Launcher</string>
     <string name="all_apps">Alle apps</string>
     <string name="search_hint">Zoek apps of instellingen…</string>
-    <string name="settings_title">Mozzo Launcher Instellingen</string>
+    <string name="settings_title">Mozzo-instellingen</string>
     <string name="settings_app_label">Mozzo-instellingen</string>
     <string name="sec_icon_size">Pictogramgrootte (Dock &amp; Lade)</string>
     <string name="show_home_clock">Klok op startscherm</string>
@@ -76,8 +76,9 @@
     <string name="kw_about">over telefoon apparaat info systeem versie</string>
     <string name="kw_system">systeem instellingen</string>
     <string name="kw_mozzo_settings">mozzo instellingen achtergrond pictogrammen dock launcher</string>
-    <string name="sec_backup_system">Systeem en Back-up</string>
-    <string name="btn_default_launcher">Standaard-app</string>
+    <string name="sec_set_default">Standaard</string>
+    <string name="sec_backup">Back-up</string>
+    <string name="btn_default_launcher">Instellen</string>
     <string name="btn_export">Exporteren</string>
     <string name="btn_import">Importeren</string>
     <string name="btn_done">Klaar</string>
@@ -85,8 +86,8 @@
     <string name="toast_export_err">Fout bij exporteren</string>
     <string name="toast_import_ok">Instellingen geïmporteerd</string>
     <string name="toast_import_err">Ongeldig back-upbestand</string>
-    <string name="banner_dock_move">Verplaatsen: pijltjes of tik op doel · OK om vast te zetten</string>
-    <string name="banner_widget_move">Widget verplaatsen: pijltjes of tik op doel · OK om vast te zetten</string>
-    <string name="banner_widget_resize_fmt">Formaat (%1$d×%2$d): pijltjes of +/- · OK om op te slaan</string>
+    <string name="banner_dock_move">Verplaatsen: pijltjes of tik · Klaar</string>
+    <string name="banner_widget_move">Widget: pijltjes of tik · Klaar</string>
+    <string name="banner_widget_resize_fmt">Formaat (%1$d×%2$d): pijltjes of +/- · Klaar</string>
     <string name="widget_cell_fmt">%1$d × %2$d</string>
 </resources>

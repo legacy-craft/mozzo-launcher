@@ -3,7 +3,7 @@
     <string name="app_name">Mozzo Launcher</string>
     <string name="all_apps">Toutes les apps</string>
     <string name="search_hint">Rechercher apps ou paramètres…</string>
-    <string name="settings_title">Paramètres de Mozzo Launcher</string>
+    <string name="settings_title">Paramètres Mozzo</string>
     <string name="settings_app_label">Paramètres Mozzo</string>
     <string name="sec_icon_size">Taille des icônes (Dock et Tiroir)</string>
     <string name="show_home_clock">Horloge sur l\'accueil</string>
@@ -76,8 +76,9 @@
     <string name="kw_about">a propos telephone appareil infos systeme version</string>
     <string name="kw_system">parametres systeme reglages</string>
     <string name="kw_mozzo_settings">mozzo parametres fond ecran icones dock launcher</string>
-    <string name="sec_backup_system">Système et Sauvegarde</string>
-    <string name="btn_default_launcher">Par défaut</string>
+    <string name="sec_set_default">Par défaut</string>
+    <string name="sec_backup">Sauvegarde</string>
+    <string name="btn_default_launcher">Définir</string>
     <string name="btn_export">Exporter</string>
     <string name="btn_import">Importer</string>
     <string name="btn_done">Terminé</string>
@@ -85,8 +86,8 @@
     <string name="toast_export_err">Erreur d\'exportation</string>
     <string name="toast_import_ok">Paramètres importés</string>
     <string name="toast_import_err">Fichier de sauvegarde invalide</string>
-    <string name="banner_dock_move">Déplacer : flèches ou toucher la cible · OK pour fixer</string>
-    <string name="banner_widget_move">Déplacer le widget : flèches ou cible · OK pour fixer</string>
-    <string name="banner_widget_resize_fmt">Taille (%1$d×%2$d) : flèches ou +/- · OK pour valider</string>
+    <string name="banner_dock_move">Déplacer : flèches ou toucher · Terminé</string>
+    <string name="banner_widget_move">Déplacer : flèches ou toucher · Terminé</string>
+    <string name="banner_widget_resize_fmt">Taille (%1$d×%2$d) : flèches ou +/- · Terminé</string>
     <string name="widget_cell_fmt">%1$d × %2$d</string>
 </resources>

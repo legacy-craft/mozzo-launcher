@@ -3,7 +3,7 @@
     <string name="app_name">Mozzo Launcher</string>
     <string name="all_apps">所有应用</string>
     <string name="search_hint">搜索应用或设置…</string>
-    <string name="settings_title">Mozzo Launcher 设置</string>
+    <string name="settings_title">Mozzo 设置</string>
     <string name="settings_app_label">Mozzo 设置</string>
     <string name="sec_icon_size">图标大小（Dock 与抽屉）</string>
     <string name="show_home_clock">主屏幕时钟</string>
@@ -76,8 +76,9 @@
     <string name="kw_about">关于 手机 设备 系统 版本</string>
     <string name="kw_system">系统 设置</string>
     <string name="kw_mozzo_settings">mozzo 设置 壁纸 图标 dock 启动器</string>
-    <string name="sec_backup_system">系统与备份</string>
-    <string name="btn_default_launcher">默认桌面</string>
+    <string name="sec_set_default">默认桌面</string>
+    <string name="sec_backup">备份</string>
+    <string name="btn_default_launcher">设置</string>
     <string name="btn_export">导出</string>
     <string name="btn_import">导入</string>
     <string name="btn_done">完成</string>
@@ -85,8 +86,8 @@
     <string name="toast_export_err">导出设置出错</string>
     <string name="toast_import_ok">设置已导入</string>
     <string name="toast_import_err">无效的备份文件</string>
-    <string name="banner_dock_move">移动图标：使用方向键或点击目标位置 · 按确定固定</string>
-    <string name="banner_widget_move">移动小部件：使用方向键或点击目标位置 · 按确定固定</string>
-    <string name="banner_widget_resize_fmt">调整大小 (%1$d×%2$d)：使用方向键或 +/- · 按确定保存</string>
+    <string name="banner_dock_move">移动图标：方向键或点击 · 完成</string>
+    <string name="banner_widget_move">移动小部件：方向键或点击 · 完成</string>
+    <string name="banner_widget_resize_fmt">调整 (%1$d×%2$d)：方向键或 +/- · 完成</string>
     <string name="widget_cell_fmt">%1$d × %2$d</string>
 </resources>

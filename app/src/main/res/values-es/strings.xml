@@ -3,7 +3,7 @@
     <string name="app_name">Mozzo Launcher</string>
     <string name="all_apps">Todas las apps</string>
     <string name="search_hint">Buscar apps o ajustes…</string>
-    <string name="settings_title">Ajustes de Mozzo Launcher</string>
+    <string name="settings_title">Ajustes de Mozzo</string>
     <string name="settings_app_label">Ajustes de Mozzo</string>
     <string name="sec_icon_size">Tamaño de iconos (Dock y Cajón)</string>
     <string name="show_home_clock">Reloj en inicio</string>
@@ -76,8 +76,9 @@
     <string name="kw_about">acerca telefono dispositivo info sistema version</string>
     <string name="kw_system">ajustes configuracion sistema</string>
     <string name="kw_mozzo_settings">mozzo ajustes fondo iconos dock launcher</string>
-    <string name="sec_backup_system">Sistema y Copia</string>
-    <string name="btn_default_launcher">Predeterminado</string>
+    <string name="sec_set_default">Por defecto</string>
+    <string name="sec_backup">Copia</string>
+    <string name="btn_default_launcher">Definir</string>
     <string name="btn_export">Exportar</string>
     <string name="btn_import">Importar</string>
     <string name="btn_done">Listo</string>
@@ -85,8 +86,8 @@
     <string name="toast_export_err">Error al exportar ajustes</string>
     <string name="toast_import_ok">Ajustes importados</string>
     <string name="toast_import_err">Archivo de copia no válido</string>
-    <string name="banner_dock_move">Mover icono: flechas o toca destino · OK para fijar</string>
-    <string name="banner_widget_move">Mover widget: flechas o toca destino · OK para fijar</string>
-    <string name="banner_widget_resize_fmt">Tamaño (%1$d×%2$d): flechas o +/- · OK para guardar</string>
+    <string name="banner_dock_move">Mover icono: flechas o toca · Listo</string>
+    <string name="banner_widget_move">Mover widget: flechas o toca · Listo</string>
+    <string name="banner_widget_resize_fmt">Tamaño (%1$d×%2$d): flechas o +/- · Listo</string>
     <string name="widget_cell_fmt">%1$d × %2$d</string>
 </resources>
