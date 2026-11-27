@@ -6,6 +6,7 @@
         tools:ignore="QueryAllPackagesPermission" />
 
     <uses-permission android:name="com.android.launcher.permission.INSTALL_SHORTCUT" />
+    <uses-permission android:name="android.permission.SET_WALLPAPER" />
 
     <uses-permission android:name="android.permission.BIND_APPWIDGET"
         tools:ignore="ProtectedPermissions" />

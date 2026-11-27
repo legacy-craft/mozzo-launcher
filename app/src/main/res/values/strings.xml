@@ -19,13 +19,9 @@
     <string name="btn_default">Default</string>
     <string name="btn_close">Close</string>
     <string name="widget_menu_title">Manage Widget</string>
-    <string name="widget_increase">Increase Height</string>
-    <string name="widget_decrease">Decrease Height</string>
-    <string name="widget_move_up">Move Up</string>
-    <string name="widget_move_down">Move Down</string>
+    <string name="widget_move">Move</string>
+    <string name="widget_resize">Resize</string>
     <string name="widget_remove">Remove</string>
-    <string name="toast_widget_top">Widget is already at the top</string>
-    <string name="toast_widget_bottom">Widget is already at the bottom</string>
     <string name="toast_widget_removed">Widget removed</string>
     <string name="toast_widget_added">Widget added! Long-press it to adjust</string>
     <string name="toast_wall_updated">Wallpaper updated</string>
@@ -55,10 +51,7 @@
     <string name="set_keyboard">Language &amp; Keyboard</string>
     <string name="set_about">About Phone</string>
     <string name="set_system">System Settings</string>
-    <string name="dock_move_before">Move earlier</string>
-    <string name="dock_move_after">Move later</string>
-    <string name="dock_change_icon">Change icon</string>
-    <string name="dock_pick_icon_title">Icon for %1$s</string>
+    <string name="dock_move">Move</string>
     <string name="shortcut_delete">Delete shortcut</string>
     <string name="toast_shortcut_added">Shortcut added: %1$s</string>
     <string name="widget_picker_title">Select Widget</string>
@@ -83,4 +76,17 @@
     <string name="kw_about">about phone device info system android version</string>
     <string name="kw_system">system settings</string>
     <string name="kw_mozzo_settings">mozzo settings launcher wallpaper dock icons</string>
+    <string name="sec_backup_system">System &amp; Backup</string>
+    <string name="btn_default_launcher">Default App</string>
+    <string name="btn_export">Export</string>
+    <string name="btn_import">Import</string>
+    <string name="btn_done">Done</string>
+    <string name="toast_export_ok">Settings exported</string>
+    <string name="toast_export_err">Error exporting settings</string>
+    <string name="toast_import_ok">Settings imported</string>
+    <string name="toast_import_err">Invalid backup file</string>
+    <string name="banner_dock_move">Move icon: arrows or tap target · OK to place</string>
+    <string name="banner_widget_move">Move widget: arrows or tap target · OK to place</string>
+    <string name="banner_widget_resize_fmt">Resize (%1$d×%2$d): arrows or +/- · OK to save</string>
+    <string name="widget_cell_fmt">%1$d × %2$d</string>
 </resources>

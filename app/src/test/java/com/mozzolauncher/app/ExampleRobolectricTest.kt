@@ -186,8 +186,8 @@ class ExampleRobolectricTest {
     assertTrue(adapter.count >= 1)
     val firstView = adapter.getView(0, null, grid)
     val label = firstView.findViewById<TextView>(R.id.appLabel)
-    assertEquals(2, label.minLines)
-    assertEquals(2, label.maxLines)
+    assertEquals(1, label.minLines)
+    assertEquals(1, label.maxLines)
 
     val recycled = adapter.getView(0, firstView, grid)
     assertTrue(recycled === firstView)
@@ -285,7 +285,18 @@ class ExampleRobolectricTest {
       assertTrue(localized.getString(R.string.kw_wifi).isNotBlank())
       assertTrue(localized.getString(R.string.kw_mozzo_settings).isNotBlank())
       assertTrue(localized.getString(R.string.sec_widgets_fmt, 2).contains("2"))
-      assertTrue(localized.getString(R.string.dock_pick_icon_title, "Test").contains("Test"))
+      assertTrue(localized.getString(R.string.widget_move).isNotBlank())
+      assertTrue(localized.getString(R.string.widget_resize).isNotBlank())
+      assertTrue(localized.getString(R.string.dock_move).isNotBlank())
+      assertTrue(localized.getString(R.string.sec_backup_system).isNotBlank())
+      assertTrue(localized.getString(R.string.btn_default_launcher).isNotBlank())
+      assertTrue(localized.getString(R.string.btn_export).isNotBlank())
+      assertTrue(localized.getString(R.string.btn_import).isNotBlank())
+      assertTrue(localized.getString(R.string.btn_done).isNotBlank())
+      assertTrue(localized.getString(R.string.banner_dock_move).isNotBlank())
+      assertTrue(localized.getString(R.string.banner_widget_move).isNotBlank())
+      assertTrue(localized.getString(R.string.banner_widget_resize_fmt, 3, 2).contains("3"))
+      assertTrue(localized.getString(R.string.widget_cell_fmt, 2, 2).contains("2"))
       assertTrue(localized.getString(R.string.toast_shortcut_added, "Site").contains("Site"))
       assertTrue(localized.getString(R.string.toast_drawer_error_fmt, "Err").contains("Err"))
     }
@@ -444,5 +455,261 @@ class ExampleRobolectricTest {
     val controller2 = Robolectric.buildActivity(MainActivity::class.java).setup()
     Shadows.shadowOf(Looper.getMainLooper()).idle()
     assertEquals(1, controller2.get().findViewById<LinearLayout>(R.id.dockFavoritesContainer).childCount)
+  }
+
+  @Test
+  fun `SettingsBackupHelper exports imports clamps values and rejects invalid payloads`() {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val sourcePrefs = context.getSharedPreferences("backup_src", Context.MODE_PRIVATE)
+    sourcePrefs.edit()
+      .putInt("icon_size_dp", 72)
+      .putString("dock_side", "bottom")
+      .putBoolean("show_clock", false)
+      .putInt("panel_opacity_pct", 50)
+      .putString("dock_favorites", "com.a,com.b,com.c")
+      .putString("web_shortcuts_json", "[{\"id\":\"s1\",\"name\":\"Docs\",\"uri\":\"https://example.com\"}]")
+      .commit()
+
+    val exported = SettingsBackupHelper.exportToJson(sourcePrefs)
+
+    val destPrefs = context.getSharedPreferences("backup_dst", Context.MODE_PRIVATE)
+    assertTrue(SettingsBackupHelper.importFromJson(exported, destPrefs))
+    assertEquals(72, destPrefs.getInt("icon_size_dp", 0))
+    assertEquals("bottom", destPrefs.getString("dock_side", ""))
+    assertFalse(destPrefs.getBoolean("show_clock", true))
+    assertEquals(50, destPrefs.getInt("panel_opacity_pct", 0))
+    assertEquals("com.a,com.b,com.c", destPrefs.getString("dock_favorites", ""))
+    assertTrue(destPrefs.getBoolean("dock_initialized", false))
+    assertTrue(destPrefs.getBoolean("dock_defaults_v2", false))
+    assertTrue(destPrefs.getString("web_shortcuts_json", "")!!.contains("Docs"))
+
+    // Out-of-range numeric values get clamped; invalid dock_side is ignored
+    val clampedPayload = """
+      {
+        "app": "mozzo_launcher_backup",
+        "icon_size_dp": 200,
+        "panel_opacity_pct": -10,
+        "dock_side": "top"
+      }
+    """.trimIndent()
+    assertTrue(SettingsBackupHelper.importFromJson(clampedPayload, destPrefs))
+    assertEquals(80, destPrefs.getInt("icon_size_dp", 0))
+    assertEquals(0, destPrefs.getInt("panel_opacity_pct", -1))
+    assertEquals("bottom", destPrefs.getString("dock_side", ""))
+
+    // Invalid JSON or missing app marker fails cleanly
+    assertFalse(SettingsBackupHelper.importFromJson("{not-json", destPrefs))
+    assertFalse(SettingsBackupHelper.importFromJson("{\"app\":\"other\"}", destPrefs))
+  }
+
+  @Test
+  fun `settings system and backup buttons trigger home settings export and import`() {
+    val controller = Robolectric.buildActivity(MainActivity::class.java).setup()
+    val activity = controller.get()
+    Shadows.shadowOf(Looper.getMainLooper()).idle()
+
+    fun findTextView(view: View, text: String): TextView? {
+      if (view is TextView && view.text?.toString() == text) return view
+      if (view is ViewGroup) {
+        for (i in 0 until view.childCount) {
+          findTextView(view.getChildAt(i), text)?.let { return it }
+        }
+      }
+      return null
+    }
+
+    activity.onKeyDown(android.view.KeyEvent.KEYCODE_MENU, null)
+    Shadows.shadowOf(Looper.getMainLooper()).idle()
+    var dialog = ShadowAlertDialog.getLatestAlertDialog()
+    findTextView(dialog.window!!.decorView, activity.getString(R.string.btn_default_launcher))!!.performClick()
+    Shadows.shadowOf(Looper.getMainLooper()).idle()
+    val defaultLauncherIntent = Shadows.shadowOf(activity).nextStartedActivity
+    assertNotNull(defaultLauncherIntent)
+    assertEquals(Settings.ACTION_HOME_SETTINGS, defaultLauncherIntent.action)
+
+    activity.onKeyDown(android.view.KeyEvent.KEYCODE_MENU, null)
+    Shadows.shadowOf(Looper.getMainLooper()).idle()
+    dialog = ShadowAlertDialog.getLatestAlertDialog()
+    findTextView(dialog.window!!.decorView, activity.getString(R.string.btn_export))!!.performClick()
+    Shadows.shadowOf(Looper.getMainLooper()).idle()
+    val exportIntent = Shadows.shadowOf(activity).nextStartedActivityForResult
+    assertNotNull(exportIntent)
+    assertEquals(Intent.ACTION_CREATE_DOCUMENT, exportIntent.intent.action)
+
+    activity.onKeyDown(android.view.KeyEvent.KEYCODE_MENU, null)
+    Shadows.shadowOf(Looper.getMainLooper()).idle()
+    dialog = ShadowAlertDialog.getLatestAlertDialog()
+    findTextView(dialog.window!!.decorView, activity.getString(R.string.btn_import))!!.performClick()
+    Shadows.shadowOf(Looper.getMainLooper()).idle()
+    val importIntent = Shadows.shadowOf(activity).nextStartedActivityForResult
+    assertNotNull(importIntent)
+    assertEquals(Intent.ACTION_OPEN_DOCUMENT, importIntent.intent.action)
+  }
+
+  @Test
+  fun `dock continuous move mode supports dpad arrows, ok commit, back cancel, and tap target`() {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val spm = Shadows.shadowOf(context.packageManager)
+    addLauncherActivity(spm, "com.test.one", "com.test.one.Main", "Alpha")
+    addLauncherActivity(spm, "com.test.two", "com.test.two.Main", "Beta")
+    addLauncherActivity(spm, "com.test.three", "com.test.three.Main", "Gamma")
+    addLauncherActivity(spm, "com.test.four", "com.test.four.Main", "Delta")
+
+    val prefs = context.getSharedPreferences("mozzo_launcher_prefs", Context.MODE_PRIVATE)
+    prefs.edit()
+      .putBoolean("dock_initialized", true)
+      .putBoolean("dock_defaults_v2", true)
+      .putString("dock_favorites", "com.test.one,com.test.two,com.test.three,com.test.four")
+      .commit()
+
+    val controller = Robolectric.buildActivity(MainActivity::class.java).setup()
+    val activity = controller.get()
+    Shadows.shadowOf(Looper.getMainLooper()).idle()
+
+    val dockFavorites = activity.findViewById<LinearLayout>(R.id.dockFavoritesContainer)
+    val banner = activity.findViewById<LinearLayout>(R.id.editModeBanner)
+    assertEquals(4, dockFavorites.childCount)
+    assertEquals(View.GONE, banner.visibility)
+
+    // Long-click first item and verify menu contains "Move" (no Change Icon)
+    dockFavorites.getChildAt(0).performLongClick()
+    Shadows.shadowOf(Looper.getMainLooper()).idle()
+    val menuDialog = ShadowAlertDialog.getLatestAlertDialog()
+    assertNotNull(menuDialog)
+    val listView = menuDialog.listView
+    assertEquals(3, listView.adapter.count)
+    assertEquals(activity.getString(R.string.dock_move), listView.adapter.getItem(0).toString())
+
+    // Enter continuous move mode
+    Shadows.shadowOf(menuDialog).clickOnItem(0)
+    Shadows.shadowOf(Looper.getMainLooper()).idle()
+    assertEquals(View.VISIBLE, banner.visibility)
+
+    // Move down twice with D-Pad then cancel with Back -> reverts order
+    activity.dispatchKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_DPAD_DOWN))
+    activity.dispatchKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_DPAD_DOWN))
+    Shadows.shadowOf(Looper.getMainLooper()).idle()
+    assertEquals("com.test.two,com.test.three,com.test.one,com.test.four", prefs.getString("dock_favorites", ""))
+
+    activity.dispatchKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_BACK))
+    Shadows.shadowOf(Looper.getMainLooper()).idle()
+    assertEquals(View.GONE, banner.visibility)
+    assertEquals("com.test.one,com.test.two,com.test.three,com.test.four", prefs.getString("dock_favorites", ""))
+
+    // Re-enter Move on first item, move down once, commit with D-Pad Center
+    dockFavorites.getChildAt(0).performLongClick()
+    Shadows.shadowOf(Looper.getMainLooper()).idle()
+    Shadows.shadowOf(ShadowAlertDialog.getLatestAlertDialog()).clickOnItem(0)
+    Shadows.shadowOf(Looper.getMainLooper()).idle()
+
+    activity.dispatchKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_DPAD_DOWN))
+    activity.dispatchKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_DPAD_CENTER))
+    Shadows.shadowOf(Looper.getMainLooper()).idle()
+    assertEquals(View.GONE, banner.visibility)
+    assertEquals("com.test.two,com.test.one,com.test.three,com.test.four", prefs.getString("dock_favorites", ""))
+
+    // Re-enter Move on index 0 ("com.test.two"), tap index 3 ("com.test.four") directly
+    dockFavorites.getChildAt(0).performLongClick()
+    Shadows.shadowOf(Looper.getMainLooper()).idle()
+    Shadows.shadowOf(ShadowAlertDialog.getLatestAlertDialog()).clickOnItem(0)
+    Shadows.shadowOf(Looper.getMainLooper()).idle()
+
+    dockFavorites.getChildAt(3).performClick()
+    Shadows.shadowOf(Looper.getMainLooper()).idle()
+    assertEquals(View.GONE, banner.visibility)
+    assertEquals("com.test.one,com.test.three,com.test.four,com.test.two", prefs.getString("dock_favorites", ""))
+  }
+
+  @Test
+  fun `phone uses system wallpaper window mode while TV falls back to wallpaperView`() {
+    val phoneController = Robolectric.buildActivity(MainActivity::class.java).setup()
+    val phoneActivity = phoneController.get()
+    Shadows.shadowOf(Looper.getMainLooper()).idle()
+
+    val phoneFlags = phoneActivity.window.attributes.flags
+    assertTrue((phoneFlags and android.view.WindowManager.LayoutParams.FLAG_SHOW_WALLPAPER) != 0)
+    assertEquals(View.GONE, phoneActivity.findViewById<View>(R.id.wallpaperView).visibility)
+
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    Shadows.shadowOf(context.packageManager).setSystemFeature(android.content.pm.PackageManager.FEATURE_LEANBACK, true)
+    val tvController = Robolectric.buildActivity(MainActivity::class.java).setup()
+    val tvActivity = tvController.get()
+    Shadows.shadowOf(Looper.getMainLooper()).idle()
+
+    val tvFlags = tvActivity.window.attributes.flags
+    assertEquals(0, tvFlags and android.view.WindowManager.LayoutParams.FLAG_SHOW_WALLPAPER)
+    assertEquals(View.VISIBLE, tvActivity.findViewById<View>(R.id.wallpaperView).visibility)
+  }
+
+  @Test
+  fun `stress test rapid drawer search edit cancellation orientation and newIntent stability`() {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val spm = Shadows.shadowOf(context.packageManager)
+    for (i in 1..12) {
+      addLauncherActivity(spm, "com.stress.app$i", "com.stress.app$i.Main", "Stress App $i")
+    }
+
+    val controller = Robolectric.buildActivity(MainActivity::class.java).setup()
+    val activity = controller.get()
+    Shadows.shadowOf(Looper.getMainLooper()).idle()
+
+    val btnDrawer = activity.findViewById<ImageButton>(R.id.btnDrawerMozzo)
+    val drawerPanel = activity.findViewById<LinearLayout>(R.id.drawerPanel)
+    val searchInput = activity.findViewById<android.widget.EditText>(R.id.searchInput)
+    val grid = activity.findViewById<android.widget.GridView>(R.id.appsGridView)
+    val widgetsGrid = activity.findViewById<android.widget.GridLayout>(R.id.widgetsContainer)
+    assertNotNull(widgetsGrid)
+
+    // Rapid open -> type -> clear -> close cycles
+    val queries = listOf("wifi", "Stress App 1", "zzznomatch", "")
+    repeat(8) { cycle ->
+      btnDrawer.performClick()
+      searchInput.setText(queries[cycle % queries.size])
+      Shadows.shadowOf(Looper.getMainLooper()).idle()
+      assertEquals(View.VISIBLE, drawerPanel.visibility)
+      activity.onBackPressed()
+      Shadows.shadowOf(Looper.getMainLooper()).idle()
+      assertEquals(View.GONE, drawerPanel.visibility)
+    }
+
+    // Enter dock move mode, rotate screen, then hit HOME newIntent cleanly
+    val dockFavorites = activity.findViewById<LinearLayout>(R.id.dockFavoritesContainer)
+    dockFavorites.getChildAt(0).performLongClick()
+    Shadows.shadowOf(Looper.getMainLooper()).idle()
+    Shadows.shadowOf(ShadowAlertDialog.getLatestAlertDialog()).clickOnItem(0)
+    Shadows.shadowOf(Looper.getMainLooper()).idle()
+
+    val cfg = android.content.res.Configuration(activity.resources.configuration).apply {
+      orientation = android.content.res.Configuration.ORIENTATION_LANDSCAPE
+    }
+    activity.resources.displayMetrics.widthPixels = 1920
+    activity.resources.displayMetrics.heightPixels = 1080
+    activity.onConfigurationChanged(cfg)
+    controller.newIntent(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME))
+    Shadows.shadowOf(Looper.getMainLooper()).idle()
+
+    assertEquals(View.GONE, activity.findViewById<View>(R.id.editModeBanner).visibility)
+    assertEquals(View.GONE, drawerPanel.visibility)
+    assertTrue(grid.adapter.count >= 12)
+    assertTrue(btnDrawer.hasFocus())
+  }
+
+  @Test
+  fun `widget grid switches between 4 portrait columns and 6 landscape columns`() {
+    val controller = Robolectric.buildActivity(MainActivity::class.java).setup()
+    val activity = controller.get()
+    Shadows.shadowOf(Looper.getMainLooper()).idle()
+
+    val widgetsGrid = activity.findViewById<android.widget.GridLayout>(R.id.widgetsContainer)
+    assertEquals(4, widgetsGrid.columnCount)
+
+    activity.resources.displayMetrics.widthPixels = 1920
+    activity.resources.displayMetrics.heightPixels = 1080
+    val cfg = android.content.res.Configuration(activity.resources.configuration).apply {
+      orientation = android.content.res.Configuration.ORIENTATION_LANDSCAPE
+    }
+    activity.onConfigurationChanged(cfg)
+    Shadows.shadowOf(Looper.getMainLooper()).idle()
+    assertEquals(6, widgetsGrid.columnCount)
   }
 }

@@ -19,13 +19,9 @@
     <string name="btn_default">Predefinito</string>
     <string name="btn_close">Chiudi</string>
     <string name="widget_menu_title">Gestione Widget</string>
-    <string name="widget_increase">Aumenta</string>
-    <string name="widget_decrease">Riduci</string>
-    <string name="widget_move_up">Sposta in alto</string>
-    <string name="widget_move_down">Sposta in basso</string>
+    <string name="widget_move">Sposta</string>
+    <string name="widget_resize">Ridimensiona</string>
     <string name="widget_remove">Rimuovi</string>
-    <string name="toast_widget_top">Il widget è già in alto</string>
-    <string name="toast_widget_bottom">Il widget è già in basso</string>
     <string name="toast_widget_removed">Widget rimosso</string>
     <string name="toast_widget_added">Widget aggiunto! Tieni premuto sopra per regolarlo</string>
     <string name="toast_wall_updated">Sfondo aggiornato</string>
@@ -55,10 +51,7 @@
     <string name="set_keyboard">Lingua e Tastiera</string>
     <string name="set_about">Info sul telefono</string>
     <string name="set_system">Impostazioni di Sistema</string>
-    <string name="dock_move_before">Sposta prima</string>
-    <string name="dock_move_after">Sposta dopo</string>
-    <string name="dock_change_icon">Cambia icona</string>
-    <string name="dock_pick_icon_title">Icona per %1$s</string>
+    <string name="dock_move">Sposta</string>
     <string name="shortcut_delete">Elimina collegamento</string>
     <string name="toast_shortcut_added">Collegamento aggiunto: %1$s</string>
     <string name="widget_picker_title">Scegli Widget</string>
@@ -83,4 +76,17 @@
     <string name="kw_about">info telefono sistema versione android</string>
     <string name="kw_system">impostazioni sistema</string>
     <string name="kw_mozzo_settings">impostazioni mozzo sfondo icone dock launcher</string>
+    <string name="sec_backup_system">Sistema e Backup</string>
+    <string name="btn_default_launcher">Predefinito</string>
+    <string name="btn_export">Esporta</string>
+    <string name="btn_import">Importa</string>
+    <string name="btn_done">Fatto</string>
+    <string name="toast_export_ok">Impostazioni esportate</string>
+    <string name="toast_export_err">Errore durante l\'esportazione</string>
+    <string name="toast_import_ok">Impostazioni importate</string>
+    <string name="toast_import_err">File di backup non valido</string>
+    <string name="banner_dock_move">Sposta icona: frecce o tocca posizione · OK per fissare</string>
+    <string name="banner_widget_move">Sposta widget: frecce o tocca posizione · OK per fissare</string>
+    <string name="banner_widget_resize_fmt">Ridimensiona (%1$d×%2$d): frecce o +/- · OK per salvare</string>
+    <string name="widget_cell_fmt">%1$d × %2$d</string>
 </resources>

@@ -75,12 +75,13 @@
             android:fillViewport="true"
             android:scrollbars="none">
 
-            <LinearLayout
+            <GridLayout
                 android:id="@+id/widgetsContainer"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:gravity="center"
-                android:orientation="vertical" />
+                android:alignmentMode="alignMargins"
+                android:columnCount="4"
+                android:useDefaultMargins="false" />
         </ScrollView>
     </LinearLayout>
 
@@ -92,10 +93,10 @@
         android:layout_marginVertical="16dp"
         android:background="@drawable/bg_dock_left"
         android:orientation="vertical"
-        android:paddingTop="10dp"
-        android:paddingBottom="10dp"
-        android:paddingStart="8dp"
-        android:paddingEnd="10dp"
+        android:paddingTop="6dp"
+        android:paddingBottom="6dp"
+        android:paddingStart="5dp"
+        android:paddingEnd="5dp"
         android:gravity="center">
 
         <ScrollView
@@ -118,28 +119,41 @@
             android:background="@drawable/bg_tv_focus_item"
             android:layout_width="48dp"
             android:layout_height="48dp"
-            android:padding="7dp"
+            android:padding="5dp"
             android:scaleType="fitCenter"
             android:src="@drawable/ic_drawer_mozzo"
             android:contentDescription="@string/all_apps" />
     </LinearLayout>
 
     <LinearLayout
+        android:id="@+id/editModeBanner"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|center_horizontal"
+        android:layout_marginBottom="20dp"
+        android:background="@drawable/bg_drawer_panel"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingHorizontal="14dp"
+        android:paddingVertical="8dp"
+        android:visibility="gone" />
+
+    <LinearLayout
         android:id="@+id/drawerPanel"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:layout_marginStart="76dp"
-        android:layout_marginEnd="16dp"
-        android:layout_marginVertical="16dp"
+        android:layout_marginStart="68dp"
+        android:layout_marginEnd="12dp"
+        android:layout_marginVertical="12dp"
         android:background="@drawable/bg_drawer_panel"
         android:orientation="vertical"
-        android:padding="14dp"
+        android:padding="10dp"
         android:clickable="true"
         android:visibility="gone">
 
         <LinearLayout
             android:layout_width="match_parent"
-            android:layout_height="44dp"
+            android:layout_height="42dp"
             android:background="@drawable/bg_search_box"
             android:gravity="center_vertical"
             android:orientation="horizontal"
@@ -171,7 +185,7 @@
             android:id="@+id/settingsResultsList"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
+            android:layout_marginTop="6dp"
             android:divider="#26FFFFFF"
             android:dividerHeight="1dp"
             android:visibility="gone" />
@@ -188,10 +202,10 @@
             android:layout_weight="1"
             android:layout_marginTop="8dp"
             android:numColumns="auto_fit"
-            android:columnWidth="82dp"
+            android:columnWidth="64dp"
             android:stretchMode="columnWidth"
-            android:verticalSpacing="8dp"
-            android:horizontalSpacing="4dp" />
+            android:verticalSpacing="4dp"
+            android:horizontalSpacing="2dp" />
     </LinearLayout>
 
 </FrameLayout>

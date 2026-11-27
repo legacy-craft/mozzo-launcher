@@ -19,13 +19,9 @@
     <string name="btn_default">Standaard</string>
     <string name="btn_close">Sluiten</string>
     <string name="widget_menu_title">Widget beheren</string>
-    <string name="widget_increase">Groter maken</string>
-    <string name="widget_decrease">Kleiner maken</string>
-    <string name="widget_move_up">Omhoog</string>
-    <string name="widget_move_down">Omlaag</string>
+    <string name="widget_move">Verplaatsen</string>
+    <string name="widget_resize">Formaat wijzigen</string>
     <string name="widget_remove">Verwijderen</string>
-    <string name="toast_widget_top">Widget staat al bovenaan</string>
-    <string name="toast_widget_bottom">Widget staat al onderaan</string>
     <string name="toast_widget_removed">Widget verwijderd</string>
     <string name="toast_widget_added">Widget toegevoegd! Houd ingedrukt om aan te passen</string>
     <string name="toast_wall_updated">Achtergrond bijgewerkt</string>
@@ -55,10 +51,7 @@
     <string name="set_keyboard">Taal en toetsenbord</string>
     <string name="set_about">Over dit apparaat</string>
     <string name="set_system">Systeeminstellingen</string>
-    <string name="dock_move_before">Eerder plaatsen</string>
-    <string name="dock_move_after">Later plaatsen</string>
-    <string name="dock_change_icon">Pictogram wijzigen</string>
-    <string name="dock_pick_icon_title">Pictogram voor %1$s</string>
+    <string name="dock_move">Verplaatsen</string>
     <string name="shortcut_delete">Snelkoppeling verwijderen</string>
     <string name="toast_shortcut_added">Snelkoppeling toegevoegd: %1$s</string>
     <string name="widget_picker_title">Widget kiezen</string>
@@ -83,4 +76,17 @@
     <string name="kw_about">over telefoon apparaat info systeem versie</string>
     <string name="kw_system">systeem instellingen</string>
     <string name="kw_mozzo_settings">mozzo instellingen achtergrond pictogrammen dock launcher</string>
+    <string name="sec_backup_system">Systeem en Back-up</string>
+    <string name="btn_default_launcher">Standaard-app</string>
+    <string name="btn_export">Exporteren</string>
+    <string name="btn_import">Importeren</string>
+    <string name="btn_done">Klaar</string>
+    <string name="toast_export_ok">Instellingen geëxporteerd</string>
+    <string name="toast_export_err">Fout bij exporteren</string>
+    <string name="toast_import_ok">Instellingen geïmporteerd</string>
+    <string name="toast_import_err">Ongeldig back-upbestand</string>
+    <string name="banner_dock_move">Verplaatsen: pijltjes of tik op doel · OK om vast te zetten</string>
+    <string name="banner_widget_move">Widget verplaatsen: pijltjes of tik op doel · OK om vast te zetten</string>
+    <string name="banner_widget_resize_fmt">Formaat (%1$d×%2$d): pijltjes of +/- · OK om op te slaan</string>
+    <string name="widget_cell_fmt">%1$d × %2$d</string>
 </resources>

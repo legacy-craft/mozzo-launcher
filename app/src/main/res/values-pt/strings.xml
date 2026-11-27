@@ -19,13 +19,9 @@
     <string name="btn_default">Padrão</string>
     <string name="btn_close">Fechar</string>
     <string name="widget_menu_title">Gerenciar widget</string>
-    <string name="widget_increase">Aumentar altura</string>
-    <string name="widget_decrease">Diminuir altura</string>
-    <string name="widget_move_up">Mover para cima</string>
-    <string name="widget_move_down">Mover para baixo</string>
+    <string name="widget_move">Mover</string>
+    <string name="widget_resize">Redimensionar</string>
     <string name="widget_remove">Remover</string>
-    <string name="toast_widget_top">O widget já está no topo</string>
-    <string name="toast_widget_bottom">O widget já está embaixo</string>
     <string name="toast_widget_removed">Widget removido</string>
     <string name="toast_widget_added">Widget adicionado! Segure para ajustar</string>
     <string name="toast_wall_updated">Papel de parede atualizado</string>
@@ -55,10 +51,7 @@
     <string name="set_keyboard">Idioma e teclado</string>
     <string name="set_about">Sobre o dispositivo</string>
     <string name="set_system">Configurações do sistema</string>
-    <string name="dock_move_before">Mover antes</string>
-    <string name="dock_move_after">Mover depois</string>
-    <string name="dock_change_icon">Alterar ícone</string>
-    <string name="dock_pick_icon_title">Ícone para %1$s</string>
+    <string name="dock_move">Mover</string>
     <string name="shortcut_delete">Excluir atalho</string>
     <string name="toast_shortcut_added">Atalho adicionado: %1$s</string>
     <string name="widget_picker_title">Escolher widget</string>
@@ -83,4 +76,17 @@
     <string name="kw_about">sobre telefone dispositivo info sistema versao</string>
     <string name="kw_system">configuracoes definicoes sistema</string>
     <string name="kw_mozzo_settings">mozzo configuracoes papel parede icones dock launcher</string>
+    <string name="sec_backup_system">Sistema e Backup</string>
+    <string name="btn_default_launcher">App padrão</string>
+    <string name="btn_export">Exportar</string>
+    <string name="btn_import">Importar</string>
+    <string name="btn_done">Concluir</string>
+    <string name="toast_export_ok">Configurações exportadas</string>
+    <string name="toast_export_err">Erro ao exportar configurações</string>
+    <string name="toast_import_ok">Configurações importadas</string>
+    <string name="toast_import_err">Arquivo de backup inválido</string>
+    <string name="banner_dock_move">Mover ícone: setas ou toque no destino · OK para fixar</string>
+    <string name="banner_widget_move">Mover widget: setas ou toque no destino · OK para fixar</string>
+    <string name="banner_widget_resize_fmt">Tamanho (%1$d×%2$d): setas ou +/- · OK para salvar</string>
+    <string name="widget_cell_fmt">%1$d × %2$d</string>
 </resources>

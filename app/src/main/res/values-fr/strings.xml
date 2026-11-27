@@ -19,13 +19,9 @@
     <string name="btn_default">Par défaut</string>
     <string name="btn_close">Fermer</string>
     <string name="widget_menu_title">Gérer le widget</string>
-    <string name="widget_increase">Agrandir</string>
-    <string name="widget_decrease">Réduire</string>
-    <string name="widget_move_up">Monter</string>
-    <string name="widget_move_down">Descendre</string>
+    <string name="widget_move">Déplacer</string>
+    <string name="widget_resize">Redimensionner</string>
     <string name="widget_remove">Supprimer</string>
-    <string name="toast_widget_top">Le widget est déjà tout en haut</string>
-    <string name="toast_widget_bottom">Le widget est déjà tout en bas</string>
     <string name="toast_widget_removed">Widget supprimé</string>
     <string name="toast_widget_added">Widget ajouté ! Appui long pour le régler</string>
     <string name="toast_wall_updated">Fond d\'écran mis à jour</string>
@@ -55,10 +51,7 @@
     <string name="set_keyboard">Langue et clavier</string>
     <string name="set_about">À propos de l\'appareil</string>
     <string name="set_system">Paramètres système</string>
-    <string name="dock_move_before">Déplacer avant</string>
-    <string name="dock_move_after">Déplacer après</string>
-    <string name="dock_change_icon">Changer l\'icône</string>
-    <string name="dock_pick_icon_title">Icône pour %1$s</string>
+    <string name="dock_move">Déplacer</string>
     <string name="shortcut_delete">Supprimer le raccourci</string>
     <string name="toast_shortcut_added">Raccourci ajouté : %1$s</string>
     <string name="widget_picker_title">Choisir un widget</string>
@@ -83,4 +76,17 @@
     <string name="kw_about">a propos telephone appareil infos systeme version</string>
     <string name="kw_system">parametres systeme reglages</string>
     <string name="kw_mozzo_settings">mozzo parametres fond ecran icones dock launcher</string>
+    <string name="sec_backup_system">Système et Sauvegarde</string>
+    <string name="btn_default_launcher">Par défaut</string>
+    <string name="btn_export">Exporter</string>
+    <string name="btn_import">Importer</string>
+    <string name="btn_done">Terminé</string>
+    <string name="toast_export_ok">Paramètres exportés</string>
+    <string name="toast_export_err">Erreur d\'exportation</string>
+    <string name="toast_import_ok">Paramètres importés</string>
+    <string name="toast_import_err">Fichier de sauvegarde invalide</string>
+    <string name="banner_dock_move">Déplacer : flèches ou toucher la cible · OK pour fixer</string>
+    <string name="banner_widget_move">Déplacer le widget : flèches ou cible · OK pour fixer</string>
+    <string name="banner_widget_resize_fmt">Taille (%1$d×%2$d) : flèches ou +/- · OK pour valider</string>
+    <string name="widget_cell_fmt">%1$d × %2$d</string>
 </resources>

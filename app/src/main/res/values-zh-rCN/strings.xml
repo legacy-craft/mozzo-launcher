@@ -19,13 +19,9 @@
     <string name="btn_default">默认</string>
     <string name="btn_close">关闭</string>
     <string name="widget_menu_title">管理小部件</string>
-    <string name="widget_increase">增大高度</string>
-    <string name="widget_decrease">减小高度</string>
-    <string name="widget_move_up">上移</string>
-    <string name="widget_move_down">下移</string>
+    <string name="widget_move">移动</string>
+    <string name="widget_resize">调整大小</string>
     <string name="widget_remove">移除</string>
-    <string name="toast_widget_top">小部件已在最顶部</string>
-    <string name="toast_widget_bottom">小部件已在最底部</string>
     <string name="toast_widget_removed">已移除小部件</string>
     <string name="toast_widget_added">小部件已添加！长按可调整</string>
     <string name="toast_wall_updated">壁纸已更新</string>
@@ -55,10 +51,7 @@
     <string name="set_keyboard">语言与输入法</string>
     <string name="set_about">关于设备</string>
     <string name="set_system">系统设置</string>
-    <string name="dock_move_before">向前移动</string>
-    <string name="dock_move_after">向后移动</string>
-    <string name="dock_change_icon">更换图标</string>
-    <string name="dock_pick_icon_title">%1$s 的图标</string>
+    <string name="dock_move">移动</string>
     <string name="shortcut_delete">删除快捷方式</string>
     <string name="toast_shortcut_added">已添加快捷方式：%1$s</string>
     <string name="widget_picker_title">选择小部件</string>
@@ -83,4 +76,17 @@
     <string name="kw_about">关于 手机 设备 系统 版本</string>
     <string name="kw_system">系统 设置</string>
     <string name="kw_mozzo_settings">mozzo 设置 壁纸 图标 dock 启动器</string>
+    <string name="sec_backup_system">系统与备份</string>
+    <string name="btn_default_launcher">默认桌面</string>
+    <string name="btn_export">导出</string>
+    <string name="btn_import">导入</string>
+    <string name="btn_done">完成</string>
+    <string name="toast_export_ok">设置已导出</string>
+    <string name="toast_export_err">导出设置出错</string>
+    <string name="toast_import_ok">设置已导入</string>
+    <string name="toast_import_err">无效的备份文件</string>
+    <string name="banner_dock_move">移动图标：使用方向键或点击目标位置 · 按确定固定</string>
+    <string name="banner_widget_move">移动小部件：使用方向键或点击目标位置 · 按确定固定</string>
+    <string name="banner_widget_resize_fmt">调整大小 (%1$d×%2$d)：使用方向键或 +/- · 按确定保存</string>
+    <string name="widget_cell_fmt">%1$d × %2$d</string>
 </resources>
