@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 108 108">
+  <defs>
+    <clipPath id="icon-clip">
+      <rect width="108" height="108" rx="22" ry="22" />
+    </clipPath>
+  </defs>
+  <g clip-path="url(#icon-clip)">
+    <!-- Background & waves -->
+    <rect width="108" height="108" fill="#0F2537" />
+    <path d="M0,66 Q27,60 54,66 T108,66 L108,108 L0,108 Z" fill="#163854" />
+    <path d="M0,76 Q27,70 54,76 T108,76 L108,108 L0,108 Z" fill="#1D4B70" />
+
+    <!-- Sailboat & front wave -->
+    <path d="M53,22 L55.5,22 L55.5,69 L53,69 Z" fill="#E2E8F0" />
+    <path d="M56.5,24 L82,65 L56.5,65 Z" fill="#FFFFFF" />
+    <path d="M52,29 L30,65 L52,65 Z" fill="#93C5FD" />
+    <path d="M24,69 L84,69 L75,79 L33,79 Z" fill="#F8FAFC" />
+    <path d="M28,72 L80,72 L78,74.5 L30,74.5 Z" fill="#38BDF8" />
+    <path d="M22,84 Q38,79 54,84 T86,84 L86,87 Q70,82 54,87 T22,87 Z" fill="#38BDF8" />
+  </g>
+</svg>
