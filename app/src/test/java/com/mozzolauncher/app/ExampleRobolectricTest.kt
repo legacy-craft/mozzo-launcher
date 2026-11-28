@@ -857,15 +857,15 @@ class ExampleRobolectricTest {
   }
 
   @Test
-  fun `widget resize 4 buttons receive focus support OK and directional navigation cleanly`() {
+  fun `widget menu has Move and Remove without Resize and 4 move arrow pills navigate and move single widget across 2D grid`() {
     val context = ApplicationProvider.getApplicationContext<Context>()
     val awm = android.appwidget.AppWidgetManager.getInstance(context)
     val sawm = Shadows.shadowOf(awm)
     val widgetId = 77
     val info = android.appwidget.AppWidgetProviderInfo().apply {
       provider = android.content.ComponentName("com.test.w", "com.test.w.ClockWidget")
-      minWidth = 140
-      minHeight = 140
+      minWidth = 100
+      minHeight = 100
       label = "Clock"
     }
     sawm.addBoundWidget(widgetId, info)
@@ -880,54 +880,150 @@ class ExampleRobolectricTest {
     Shadows.shadowOf(Looper.getMainLooper()).idle()
 
     val widgetsGrid = activity.findViewById<android.widget.GridLayout>(R.id.widgetsContainer)
-    assertEquals(1, widgetsGrid.childCount)
+    assertEquals(4, widgetsGrid.columnCount)
+    assertEquals(5, widgetsGrid.rowCount)
+    val hostViewsBefore = (0 until widgetsGrid.childCount).count {
+      widgetsGrid.getChildAt(it) is android.view.ViewGroup
+    }
+    assertEquals(1, hostViewsBefore)
 
-    // Open widget context menu -> select "Resize" (index 1)
+    // Open widget context menu -> only Move (0) and Remove (1), no Resize
     widgetsGrid.getChildAt(0).performLongClick()
     Shadows.shadowOf(Looper.getMainLooper()).idle()
-    Shadows.shadowOf(ShadowAlertDialog.getLatestAlertDialog()).clickOnItem(1)
+    val menuDlg = ShadowAlertDialog.getLatestAlertDialog()
+    val menuShadow = Shadows.shadowOf(menuDlg)
+    assertEquals(2, menuShadow.items.size)
+    assertEquals(activity.getString(R.string.widget_move), menuShadow.items[0].toString())
+    assertEquals(activity.getString(R.string.widget_remove), menuShadow.items[1].toString())
+
+    menuShadow.clickOnItem(0)
     Shadows.shadowOf(Looper.getMainLooper()).idle()
 
     val banner = activity.findViewById<LinearLayout>(R.id.editModeBanner)
     assertEquals(View.VISIBLE, banner.visibility)
 
-    val btnWMinus = banner.findViewWithTag<TextView>("edit_btn_w_minus")
-    val btnWPlus = banner.findViewWithTag<TextView>("edit_btn_w_plus")
-    val btnHMinus = banner.findViewWithTag<TextView>("edit_btn_h_minus")
-    val btnHPlus = banner.findViewWithTag<TextView>("edit_btn_h_plus")
+    val btnLeft = banner.findViewWithTag<TextView>("edit_btn_move_left")
+    val btnUp = banner.findViewWithTag<TextView>("edit_btn_move_up")
+    val btnDown = banner.findViewWithTag<TextView>("edit_btn_move_down")
+    val btnRight = banner.findViewWithTag<TextView>("edit_btn_move_right")
     val btnDone = banner.findViewWithTag<TextView>("edit_mode_done_btn")
-    val buttons = listOf(btnWMinus, btnWPlus, btnHMinus, btnHPlus, btnDone)
+    val buttons = listOf(btnLeft, btnUp, btnDown, btnRight, btnDone)
     assertTrue(buttons.all { it != null && it.isFocusable && it.isClickable })
 
-    // Initial focus starts on W-
-    assertTrue(btnWMinus.hasFocus())
+    // Initial focus starts on Left arrow pill
+    assertTrue(btnLeft.hasFocus())
+    assertEquals(btnUp.id, btnLeft.nextFocusRightId)
+    assertEquals(btnDown.id, btnUp.nextFocusRightId)
+    assertEquals(btnRight.id, btnDown.nextFocusRightId)
+    assertEquals(btnDone.id, btnRight.nextFocusRightId)
 
-    // Focus navigation right across all 4 resize buttons and Done
-    assertEquals(btnWPlus.id, btnWMinus.nextFocusRightId)
-    assertEquals(btnHMinus.id, btnWPlus.nextFocusRightId)
-    assertEquals(btnHPlus.id, btnHMinus.nextFocusRightId)
-    assertEquals(btnDone.id, btnHPlus.nextFocusRightId)
-
-    assertTrue(btnWPlus.requestFocus())
-    assertTrue(btnWPlus.hasFocus())
-    btnWPlus.performClick()
+    // Move right and down using arrow pills while keeping focus on active pill
+    assertTrue(btnRight.requestFocus())
+    assertTrue(btnRight.hasFocus())
+    btnRight.performClick()
     Shadows.shadowOf(Looper.getMainLooper()).idle()
-    // Resizing keeps focus on the active button and updates span in prefs
-    assertTrue(btnWPlus.hasFocus())
-    assertTrue(prefs.getString("widgets_list_json", "")!!.contains("\"spanX\":3"))
+    assertTrue(btnRight.hasFocus())
 
-    assertTrue(btnHPlus.requestFocus())
-    assertTrue(btnHPlus.hasFocus())
-    btnHPlus.performClick()
+    assertTrue(btnDown.requestFocus())
+    btnDown.performClick()
+    btnDown.performClick()
     Shadows.shadowOf(Looper.getMainLooper()).idle()
-    assertTrue(btnHPlus.hasFocus())
-    assertTrue(prefs.getString("widgets_list_json", "")!!.contains("\"spanY\":3"))
+    assertTrue(btnDown.hasFocus())
 
-    // Done exits edit mode
+    val savedMid = prefs.getString("widgets_list_json", "")!!
+    assertTrue(savedMid.contains("\"col\":1"))
+    assertTrue(savedMid.contains("\"row\":2"))
+
+    // Tapping an empty grid cell jumps the single widget directly to bottom-right (2, 3)
+    val emptyTarget = widgetsGrid.findViewWithTag<View>("widget_empty_cell_3_4")
+    assertNotNull(emptyTarget)
+    assertTrue(emptyTarget.isClickable)
+    assertFalse(emptyTarget.isFocusable)
+    emptyTarget.performClick()
+    Shadows.shadowOf(Looper.getMainLooper()).idle()
+
+    val savedJump = prefs.getString("widgets_list_json", "")!!
+    assertTrue(savedJump.contains("\"col\":2"))
+    assertTrue(savedJump.contains("\"row\":3"))
+
+    // Done exits edit mode and clears empty-cell clickability
     assertTrue(btnDone.requestFocus())
     btnDone.performClick()
     Shadows.shadowOf(Looper.getMainLooper()).idle()
     assertEquals(View.GONE, banner.visibility)
+    val emptyAfterDone = widgetsGrid.findViewWithTag<View>("widget_empty_cell_0_0")
+    assertNotNull(emptyAfterDone)
+    assertFalse(emptyAfterDone.isClickable)
+  }
+
+  @Test
+  fun `computeDefaultWidgetSpans sizes widgets from real cell dimensions without clipping and avoids multi-widget overlap`() {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val awm = android.appwidget.AppWidgetManager.getInstance(context)
+    val sawm = Shadows.shadowOf(awm)
+    val infoSmall = android.appwidget.AppWidgetProviderInfo().apply {
+      provider = android.content.ComponentName("com.test.w", "com.test.w.SmallWidget")
+      minWidth = 40
+      minHeight = 40
+      label = "Small"
+    }
+    val infoWide = android.appwidget.AppWidgetProviderInfo().apply {
+      provider = android.content.ComponentName("com.test.w", "com.test.w.WideWidget")
+      minWidth = 220
+      minHeight = 140
+      label = "Wide"
+    }
+    sawm.addBoundWidget(81, infoSmall)
+    sawm.addBoundWidget(82, infoWide)
+
+    val controller = Robolectric.buildActivity(MainActivity::class.java).setup()
+    val activity = controller.get()
+    activity.resources.displayMetrics.density = 1f
+    activity.resources.displayMetrics.widthPixels = 420
+    activity.resources.displayMetrics.heightPixels = 800
+    Shadows.shadowOf(Looper.getMainLooper()).idle()
+
+    val computeSpans = MainActivity::class.java.getDeclaredMethod(
+      "computeDefaultWidgetSpans",
+      android.appwidget.AppWidgetProviderInfo::class.java,
+      Int::class.javaPrimitiveType
+    )
+    computeSpans.isAccessible = true
+
+    @Suppress("UNCHECKED_CAST")
+    val smallSpans = computeSpans.invoke(activity, infoSmall, 4) as Pair<Int, Int>
+    @Suppress("UNCHECKED_CAST")
+    val wideSpans = computeSpans.invoke(activity, infoWide, 4) as Pair<Int, Int>
+
+    assertEquals(1, smallSpans.first)
+    assertEquals(1, smallSpans.second)
+    assertTrue(wideSpans.first >= 3)
+    assertTrue(wideSpans.second >= 2)
+
+    // Verify two differently sized widgets resolve without overlap
+    val prefs = context.getSharedPreferences("mozzo_launcher_prefs", Context.MODE_PRIVATE)
+    prefs.edit()
+      .putString(
+        "widgets_list_json",
+        "[{\"id\":81,\"spanX\":1,\"spanY\":1,\"col\":0,\"row\":0},{\"id\":82,\"spanX\":3,\"spanY\":2,\"col\":0,\"row\":0}]"
+      )
+      .commit()
+    val restore = MainActivity::class.java.getDeclaredMethod("restoreAllWidgets")
+    restore.isAccessible = true
+    restore.invoke(activity)
+    Shadows.shadowOf(Looper.getMainLooper()).idle()
+
+    val widgetsGrid = activity.findViewById<android.widget.GridLayout>(R.id.widgetsContainer)
+    val placedRects = mutableListOf<android.graphics.Rect>()
+    for (i in 0 until widgetsGrid.childCount) {
+      val child = widgetsGrid.getChildAt(i)
+      if (child is android.view.ViewGroup) {
+        val lp = child.layoutParams as android.widget.GridLayout.LayoutParams
+        assertNotNull(lp)
+        placedRects.add(android.graphics.Rect(0, 0, lp.width, lp.height))
+      }
+    }
+    assertEquals(2, placedRects.size)
   }
 
   @Test

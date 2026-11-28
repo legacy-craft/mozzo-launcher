@@ -100,10 +100,12 @@ class MainActivity : Activity() {
     data class WidgetEntry(
         val id: Int,
         var spanX: Int,
-        var spanY: Int
+        var spanY: Int,
+        var col: Int = -1,
+        var row: Int = -1
     )
 
-    private enum class WidgetEditMode { MOVE, RESIZE }
+    private enum class WidgetEditMode { MOVE }
 
     private val prefs by lazy {
         val np = getSharedPreferences("mozzo_launcher_prefs", Context.MODE_PRIVATE)
@@ -349,13 +351,7 @@ class MainActivity : Activity() {
     }
 
     private fun isFocusInsideEditBanner(): Boolean {
-        if (editModeBanner.visibility != View.VISIBLE) return false
-        var cur: View? = currentFocus
-        while (cur != null) {
-            if (cur === editModeBanner) return true
-            cur = cur.parent as? View
-        }
-        return false
+        return editModeBanner.visibility == View.VISIBLE && editModeBanner.hasFocus()
     }
 
     private fun focusActiveEditedTarget(): Boolean {
@@ -727,20 +723,63 @@ class MainActivity : Activity() {
         return if (resources.displayMetrics.widthPixels > resources.displayMetrics.heightPixels) 6 else 4
     }
 
+    private fun getWidgetAvailableHeightPx(isWide: Boolean): Int {
+        if (widgetsScrollView.height > 0 && !isWide) {
+            return widgetsScrollView.height
+        }
+        val showClock = prefs.getBoolean("show_clock", true)
+        val side = prefs.getString("dock_side", "left") ?: "left"
+        val iconSizeDp = prefs.getInt("icon_size_dp", 48)
+        val topReserve = insetTop + (if (showClock) dp(120) else dp(24)) + dp(8)
+        val bottomReserve = if (side == "bottom") {
+            dp(iconSizeDp + 22) + insetBottom + dp(16)
+        } else {
+            dp(16) + insetBottom + dp(16)
+        }
+        return (resources.displayMetrics.heightPixels - topReserve - bottomReserve).coerceAtLeast(dp(180))
+    }
+
+    private fun getWidgetGridRows(): Int {
+        val isWide = resources.displayMetrics.widthPixels > resources.displayMetrics.heightPixels
+        if (!isWide) return 5
+        val availH = getWidgetAvailableHeightPx(isWide = true)
+        return if (availH < dp(280)) 2 else 3
+    }
+
     private fun computeDefaultWidgetSpans(info: AppWidgetProviderInfo?, maxCols: Int): Pair<Int, Int> {
-        if (info == null) return minOf(4, maxCols) to 2
+        val maxRows = getWidgetGridRows()
+        if (info == null) return minOf(4, maxCols) to minOf(2, maxRows)
+
+        val density = resources.displayMetrics.density.coerceAtLeast(1f)
+        val fullGapPx = dp(3) * 2
+        val innerPadPx = dp(4)
+        val padDp = (fullGapPx + innerPadPx) / density
+        val unitWdp = (getWidgetGridUnitWidthPx(maxCols) / density).coerceAtLeast(44f)
+        val unitHdp = (getWidgetGridUnitHeightPx() / density).coerceAtLeast(88f)
+
+        val minWdp = if (info.minWidth > 0) info.minWidth / density else 0f
+        val minHdp = if (info.minHeight > 0) info.minHeight / density else 0f
+
+        val byMinW = if (minWdp > 0f) {
+            kotlin.math.ceil(((minWdp + padDp) / unitWdp).toDouble()).toInt().coerceIn(1, maxCols)
+        } else {
+            minOf(4, maxCols)
+        }
+        val byMinH = if (minHdp > 0f) {
+            kotlin.math.ceil(((minHdp + padDp) / unitHdp).toDouble()).toInt().coerceIn(1, maxRows)
+        } else {
+            minOf(2, maxRows)
+        }
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
             info.targetCellWidth > 0 &&
             info.targetCellHeight > 0
         ) {
-            return info.targetCellWidth.coerceIn(1, maxCols) to info.targetCellHeight.coerceIn(1, 6)
+            val spanX = maxOf(info.targetCellWidth, byMinW).coerceIn(1, maxCols)
+            val spanY = maxOf(info.targetCellHeight, byMinH).coerceIn(1, maxRows)
+            return spanX to spanY
         }
-        val density = resources.displayMetrics.density.coerceAtLeast(1f)
-        val minWdp = (info.minWidth / density).toInt()
-        val minHdp = (info.minHeight / density).toInt()
-        val spanX = if (minWdp > 0) ((minWdp + 30) / 70).coerceIn(1, maxCols) else minOf(4, maxCols)
-        val spanY = if (minHdp > 0) ((minHdp + 45) / 100).coerceIn(1, 6) else 2
-        return spanX to spanY
+        return byMinW to byMinH
     }
 
     private fun saveWidgetEntries() {
@@ -750,6 +789,8 @@ class MainActivity : Activity() {
             obj.put("id", entry.id)
             obj.put("spanX", entry.spanX)
             obj.put("spanY", entry.spanY)
+            obj.put("col", entry.col)
+            obj.put("row", entry.row)
             obj.put("height", entry.spanY * WIDGET_CELL_HEIGHT_DP)
             arr.put(obj)
         }
@@ -786,7 +827,9 @@ class MainActivity : Activity() {
                         } else {
                             defY
                         }
-                        widgetEntries.add(WidgetEntry(id, spanX, spanY))
+                        val col = if (obj.has("col")) obj.optInt("col", -1) else -1
+                        val row = if (obj.has("row")) obj.optInt("row", -1) else -1
+                        widgetEntries.add(WidgetEntry(id, spanX, spanY, col, row))
                     } else {
                         try { appWidgetHost?.deleteAppWidgetId(id) } catch (_: Exception) {}
                     }
@@ -833,26 +876,114 @@ class MainActivity : Activity() {
 
     private fun getWidgetGridUnitHeightPx(): Int {
         val isWide = resources.displayMetrics.widthPixels > resources.displayMetrics.heightPixels
-        val availH = if (widgetsScrollView.height > 0 && !isWide) {
-            widgetsScrollView.height
-        } else {
-            val showClock = prefs.getBoolean("show_clock", true)
-            val side = prefs.getString("dock_side", "left") ?: "left"
-            val iconSizeDp = prefs.getInt("icon_size_dp", 48)
-            val topReserve = insetTop + (if (showClock) dp(120) else dp(24)) + dp(8)
-            val bottomReserve = if (side == "bottom") {
-                dp(iconSizeDp + 18) + insetBottom + dp(16)
-            } else {
-                dp(16) + insetBottom + dp(16)
-            }
-            (resources.displayMetrics.heightPixels - topReserve - bottomReserve).coerceAtLeast(dp(180))
-        }
-        val targetRows = if (isWide) {
-            if (availH < dp(280)) 2 else 3
-        } else {
-            5
-        }
+        val availH = getWidgetAvailableHeightPx(isWide)
+        val targetRows = getWidgetGridRows()
         return (availH / targetRows).coerceIn(dp(88), dp(136))
+    }
+
+    private data class ResolvedWidgetGrid(
+        val positions: Map<Int, Pair<Int, Int>>,
+        val occupied: List<BooleanArray>,
+        val totalRows: Int
+    )
+
+    private fun resolveWidgetPlacements(
+        entries: List<WidgetEntry>,
+        cols: Int,
+        baseRows: Int,
+        commitUnplaced: Boolean = true
+    ): ResolvedWidgetGrid {
+        val occupied = MutableList(maxOf(baseRows, 6)) { BooleanArray(cols) }
+
+        fun ensureRows(needed: Int) {
+            while (occupied.size < needed) {
+                occupied.add(BooleanArray(cols))
+            }
+        }
+
+        fun canPlace(c: Int, r: Int, sx: Int, sy: Int): Boolean {
+            if (c < 0 || r < 0 || c + sx > cols) return false
+            ensureRows(r + sy)
+            for (rr in r until (r + sy)) {
+                for (cc in c until (c + sx)) {
+                    if (occupied[rr][cc]) return false
+                }
+            }
+            return true
+        }
+
+        fun mark(c: Int, r: Int, sx: Int, sy: Int) {
+            ensureRows(r + sy)
+            for (rr in r until (r + sy)) {
+                for (cc in c until (c + sx)) {
+                    occupied[rr][cc] = true
+                }
+            }
+        }
+
+        val positions = LinkedHashMap<Int, Pair<Int, Int>>()
+        val deferred = mutableListOf<WidgetEntry>()
+
+        for (entry in entries) {
+            val effX = entry.spanX.coerceIn(1, cols)
+            val effY = entry.spanY.coerceIn(1, 6)
+            if (entry.col >= 0 && entry.row >= 0) {
+                val clampedC = entry.col.coerceIn(0, cols - effX)
+                val maxR = maxOf(0, baseRows - effY)
+                val clampedR = if (entry.row <= maxR) entry.row else maxR
+                if (canPlace(clampedC, clampedR, effX, effY)) {
+                    mark(clampedC, clampedR, effX, effY)
+                    positions[entry.id] = clampedC to clampedR
+                } else {
+                    deferred.add(entry)
+                }
+            } else {
+                deferred.add(entry)
+            }
+        }
+
+        var unplacedChanged = false
+        for (entry in deferred) {
+            val effX = entry.spanX.coerceIn(1, cols)
+            val effY = entry.spanY.coerceIn(1, 6)
+            var placedC = 0
+            var placedR = 0
+            var found = false
+            var r = 0
+            while (!found && r < 40) {
+                for (c in 0..(cols - effX)) {
+                    if (canPlace(c, r, effX, effY)) {
+                        placedC = c
+                        placedR = r
+                        found = true
+                        break
+                    }
+                }
+                if (!found) r++
+            }
+            mark(placedC, placedR, effX, effY)
+            positions[entry.id] = placedC to placedR
+            if (commitUnplaced && (entry.col < 0 || entry.row < 0)) {
+                entry.col = placedC
+                entry.row = placedR
+                unplacedChanged = true
+            }
+        }
+
+        if (unplacedChanged) {
+            saveWidgetEntries()
+        }
+
+        var maxBottom = baseRows
+        for (entry in entries) {
+            val pos = positions[entry.id] ?: continue
+            val effY = entry.spanY.coerceIn(1, 6)
+            if (pos.second + effY > maxBottom) {
+                maxBottom = pos.second + effY
+            }
+        }
+        ensureRows(maxBottom)
+        return ResolvedWidgetGrid(positions, occupied, maxBottom)
     }
 
     private fun syncWidgetFocusAndSizes() {
@@ -954,6 +1085,7 @@ class MainActivity : Activity() {
 
     private fun rebuildWidgetsUI() {
         val cols = getWidgetGridCols()
+        val baseRows = getWidgetGridRows()
         if (widgetsContainer.columnCount != cols) {
             widgetsContainer.columnCount = cols
         }
@@ -972,7 +1104,7 @@ class MainActivity : Activity() {
         val density = resources.displayMetrics.density.coerceAtLeast(1f)
         val dockSide = prefs.getString("dock_side", "left") ?: "left"
 
-        widgetsContainer.removeAllViews()
+        val renderEntries = mutableListOf<WidgetEntry>()
         for (entry in widgetEntries) {
             var cellWrapper = widgetCellViews[entry.id]
             var hostView = widgetHostViews[entry.id]
@@ -990,14 +1122,27 @@ class MainActivity : Activity() {
                 widgetCellViews[entry.id] = cellWrapper
                 widgetHostViews[entry.id] = hostView
             }
+            renderEntries.add(entry)
+        }
+
+        val resolved = resolveWidgetPlacements(renderEntries, cols, baseRows, commitUnplaced = true)
+        if (widgetsContainer.rowCount != resolved.totalRows) {
+            widgetsContainer.rowCount = resolved.totalRows
+        }
+
+        widgetsContainer.removeAllViews()
+        for (entry in renderEntries) {
+            val cellWrapper = widgetCellViews[entry.id] ?: continue
+            val hostView = widgetHostViews[entry.id] ?: continue
+            val (c, r) = resolved.positions[entry.id] ?: continue
 
             val effX = entry.spanX.coerceIn(1, cols)
             val effY = entry.spanY.coerceIn(1, 6)
             val itemW = (unitW * effX - fullGap).coerceAtLeast(dp(40))
             val itemH = (unitH * effY - fullGap).coerceAtLeast(dp(72))
 
-            val colSpec = GridLayout.spec(GridLayout.UNDEFINED, effX)
-            val rowSpec = GridLayout.spec(GridLayout.UNDEFINED, effY)
+            val colSpec = GridLayout.spec(c, effX)
+            val rowSpec = GridLayout.spec(r, effY)
             cellWrapper.layoutParams = GridLayout.LayoutParams(rowSpec, colSpec).apply {
                 width = itemW
                 height = itemH
@@ -1015,13 +1160,47 @@ class MainActivity : Activity() {
             )
         }
 
-        editingWidgetId?.let { activeId ->
-            if (widgetEditMode != WidgetEditMode.RESIZE && !isFocusInsideEditBanner()) {
-                widgetCellViews[activeId]?.post {
-                    if (editingWidgetId == activeId && !isFocusInsideEditBanner()) {
-                        widgetCellViews[activeId]?.requestFocus()
+        val isMovingWidget = editingWidgetId != null && widgetEditMode == WidgetEditMode.MOVE
+        val slotW = (unitW - fullGap).coerceAtLeast(dp(40))
+        val slotH = (unitH - fullGap).coerceAtLeast(dp(72))
+        if (renderEntries.isNotEmpty() || isMovingWidget) {
+            for (r in 0 until resolved.totalRows) {
+                for (c in 0 until cols) {
+                    if (resolved.occupied[r][c]) continue
+                    val emptyCell = View(this).apply {
+                        tag = "widget_empty_cell_${c}_${r}"
+                        isFocusable = false
+                        isFocusableInTouchMode = false
+                        isClickable = isMovingWidget
+                        layoutParams = GridLayout.LayoutParams(
+                            GridLayout.spec(r, 1),
+                            GridLayout.spec(c, 1)
+                        ).apply {
+                            width = slotW
+                            height = slotH
+                            setMargins(halfGap, halfGap, halfGap, halfGap)
+                        }
+                        if (isMovingWidget) {
+                            background = GradientDrawable().apply {
+                                cornerRadius = dp(10).toFloat()
+                                setColor(Color.argb(28, 56, 189, 248))
+                                setStroke(dp(1), Color.argb(110, 56, 189, 248))
+                            }
+                            setOnClickListener {
+                                editingWidgetId?.let { activeId ->
+                                    moveWidgetToGridCell(activeId, c, r)
+                                }
+                            }
+                        }
                     }
+                    widgetsContainer.addView(emptyCell)
                 }
+            }
+        }
+
+        editingWidgetId?.let { activeId ->
+            if (editModeBanner.visibility == View.VISIBLE && !isFocusInsideEditBanner()) {
+                widgetCellViews[activeId]?.requestFocus()
             }
         }
     }
@@ -1029,6 +1208,9 @@ class MainActivity : Activity() {
     private fun startWidgetEditMode(widgetId: Int, mode: WidgetEditMode) {
         if (widgetEntries.none { it.id == widgetId }) return
         exitEditMode(commit = true)
+        val cols = getWidgetGridCols()
+        val baseRows = getWidgetGridRows()
+        resolveWidgetPlacements(widgetEntries, cols, baseRows, commitUnplaced = true)
         preEditWidgetSnapshot = widgetEntries.map { it.copy() }
         editingWidgetId = widgetId
         widgetEditMode = mode
@@ -1037,41 +1219,119 @@ class MainActivity : Activity() {
         updateEditModeBanner()
     }
 
-    private fun moveWidgetEntryByDelta(widgetId: Int, delta: Int): Boolean {
-        val idx = widgetEntries.indexOfFirst { it.id == widgetId }
-        if (idx == -1) return false
-        val next = (idx + delta).coerceIn(0, widgetEntries.lastIndex)
-        if (next == idx) return false
-        val item = widgetEntries.removeAt(idx)
-        widgetEntries.add(next, item)
+    private fun moveEditingWidgetBy(dCol: Int, dRow: Int): Boolean {
+        val widgetId = editingWidgetId ?: return false
+        val entry = widgetEntries.firstOrNull { it.id == widgetId } ?: return false
+        val cols = getWidgetGridCols()
+        val baseRows = getWidgetGridRows()
+        val effX = entry.spanX.coerceIn(1, cols)
+        val effY = entry.spanY.coerceIn(1, 6)
+
+        val others = widgetEntries.filter { it.id != widgetId }
+        val otherGrid = resolveWidgetPlacements(others, cols, baseRows, commitUnplaced = false)
+
+        val maxColStart = (cols - effX).coerceAtLeast(0)
+        val maxRowStart = (maxOf(baseRows, otherGrid.totalRows) - effY).coerceAtLeast(0)
+
+        var curCol = if (entry.col >= 0) entry.col.coerceIn(0, maxColStart) else 0
+        var curRow = if (entry.row >= 0) entry.row.coerceIn(0, maxRowStart) else 0
+
+        fun fits(c: Int, r: Int): Boolean {
+            if (c !in 0..maxColStart || r !in 0..maxRowStart) return false
+            for (rr in r until (r + effY)) {
+                if (rr >= otherGrid.occupied.size) continue
+                for (cc in c until (c + effX)) {
+                    if (otherGrid.occupied[rr][cc]) return false
+                }
+            }
+            return true
+        }
+
+        var step = 1
+        while (true) {
+            val candC = curCol + dCol * step
+            val candR = curRow + dRow * step
+            if (candC !in 0..maxColStart || candR !in 0..maxRowStart) {
+                return false
+            }
+            if (fits(candC, candR)) {
+                entry.col = candC
+                entry.row = candR
+                saveWidgetEntries()
+                rebuildWidgetsUI()
+                return true
+            }
+            step++
+        }
+    }
+
+    private fun moveWidgetToGridCell(widgetId: Int, targetCol: Int, targetRow: Int): Boolean {
+        val entry = widgetEntries.firstOrNull { it.id == widgetId } ?: return false
+        val cols = getWidgetGridCols()
+        val baseRows = getWidgetGridRows()
+        val effX = entry.spanX.coerceIn(1, cols)
+        val effY = entry.spanY.coerceIn(1, 6)
+
+        val others = widgetEntries.filter { it.id != widgetId }
+        val otherGrid = resolveWidgetPlacements(others, cols, baseRows, commitUnplaced = false)
+
+        val maxColStart = (cols - effX).coerceAtLeast(0)
+        val maxRowStart = (maxOf(baseRows, otherGrid.totalRows, targetRow + 1) - effY).coerceAtLeast(0)
+
+        fun fits(c: Int, r: Int): Boolean {
+            if (c !in 0..maxColStart || r !in 0..maxRowStart) return false
+            for (rr in r until (r + effY)) {
+                if (rr >= otherGrid.occupied.size) continue
+                for (cc in c until (c + effX)) {
+                    if (otherGrid.occupied[rr][cc]) return false
+                }
+            }
+            return true
+        }
+
+        val candidates = mutableListOf<Pair<Int, Int>>()
+        val baseC = targetCol.coerceIn(0, maxColStart)
+        val baseR = targetRow.coerceIn(0, maxRowStart)
+        candidates.add(baseC to baseR)
+        for (dc in 0 until effX) {
+            for (dr in 0 until effY) {
+                val c = (targetCol - dc).coerceIn(0, maxColStart)
+                val r = (targetRow - dr).coerceIn(0, maxRowStart)
+                if ((c to r) !in candidates) candidates.add(c to r)
+            }
+        }
+        val match = candidates.firstOrNull { (c, r) -> fits(c, r) } ?: return false
+        if (entry.col == match.first && entry.row == match.second) return false
+        entry.col = match.first
+        entry.row = match.second
         saveWidgetEntries()
         rebuildWidgetsUI()
         return true
     }
 
     private fun moveWidgetEntryToTarget(activeId: Int, targetId: Int) {
+        val active = widgetEntries.firstOrNull { it.id == activeId } ?: return
+        val target = widgetEntries.firstOrNull { it.id == targetId } ?: return
+        if (active.id == target.id) return
+        val cols = getWidgetGridCols()
+        val baseRows = getWidgetGridRows()
+        val resolved = resolveWidgetPlacements(widgetEntries, cols, baseRows, commitUnplaced = true)
+        val activePos = resolved.positions[active.id] ?: return
+        val targetPos = resolved.positions[target.id] ?: return
+
+        active.col = targetPos.first
+        active.row = targetPos.second
+        target.col = activePos.first
+        target.row = activePos.second
+
         val fromIdx = widgetEntries.indexOfFirst { it.id == activeId }
         val toIdx = widgetEntries.indexOfFirst { it.id == targetId }
-        if (fromIdx == -1 || toIdx == -1 || fromIdx == toIdx) return
-        val item = widgetEntries.removeAt(fromIdx)
-        widgetEntries.add(toIdx, item)
+        if (fromIdx != -1 && toIdx != -1) {
+            val item = widgetEntries.removeAt(fromIdx)
+            widgetEntries.add(toIdx, item)
+        }
         saveWidgetEntries()
         rebuildWidgetsUI()
-    }
-
-    private fun adjustEditingWidgetSpan(dX: Int, dY: Int) {
-        val id = editingWidgetId ?: return
-        val entry = widgetEntries.firstOrNull { it.id == id } ?: return
-        val cols = getWidgetGridCols()
-        val nextX = (entry.spanX + dX).coerceIn(1, cols)
-        val nextY = (entry.spanY + dY).coerceIn(1, 6)
-        if (nextX != entry.spanX || nextY != entry.spanY) {
-            entry.spanX = nextX
-            entry.spanY = nextY
-            saveWidgetEntries()
-            rebuildWidgetsUI()
-            updateEditModeBanner()
-        }
     }
 
     private fun showWidgetMenuDialog(entry: WidgetEntry) {
@@ -1079,7 +1339,6 @@ class MainActivity : Activity() {
 
         val options = arrayOf(
             getString(R.string.widget_move),
-            getString(R.string.widget_resize),
             getString(R.string.widget_remove)
         )
 
@@ -1088,8 +1347,7 @@ class MainActivity : Activity() {
             .setItems(options) { _, which ->
                 when (which) {
                     0 -> startWidgetEditMode(entry.id, WidgetEditMode.MOVE)
-                    1 -> startWidgetEditMode(entry.id, WidgetEditMode.RESIZE)
-                    2 -> {
+                    1 -> {
                         val idx = widgetEntries.indexOfFirst { it.id == entry.id }
                         if (idx != -1) {
                             widgetEntries.removeAt(idx)
@@ -1474,8 +1732,8 @@ class MainActivity : Activity() {
         val maxCols = getWidgetGridCols()
         val info = appWidgetManager?.getAppWidgetInfo(appWidgetId)
         val (defX, defY) = computeDefaultWidgetSpans(info, maxCols)
-        val spanX = pendingWidgetSpanX.coerceIn(1, maxCols).takeIf { info != null } ?: defX
-        val spanY = pendingWidgetSpanY.coerceIn(1, 6).takeIf { info != null } ?: defY
+        val spanX = if (info != null) defX else pendingWidgetSpanX.coerceIn(1, maxCols)
+        val spanY = if (info != null) defY else pendingWidgetSpanY.coerceIn(1, 6)
         if (widgetEntries.none { it.id == appWidgetId }) {
             widgetEntries.add(WidgetEntry(appWidgetId, spanX, spanY))
         }
@@ -2895,17 +3153,10 @@ class MainActivity : Activity() {
         when (widgetEditMode) {
             WidgetEditMode.MOVE -> {
                 when (keyCode) {
-                    KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_UP -> moveWidgetEntryByDelta(widgetId, -1)
-                    KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_DPAD_DOWN -> moveWidgetEntryByDelta(widgetId, 1)
-                }
-                return true
-            }
-            WidgetEditMode.RESIZE -> {
-                when (keyCode) {
-                    KeyEvent.KEYCODE_DPAD_LEFT -> adjustEditingWidgetSpan(-1, 0)
-                    KeyEvent.KEYCODE_DPAD_RIGHT -> adjustEditingWidgetSpan(1, 0)
-                    KeyEvent.KEYCODE_DPAD_UP -> adjustEditingWidgetSpan(0, -1)
-                    KeyEvent.KEYCODE_DPAD_DOWN -> adjustEditingWidgetSpan(0, 1)
+                    KeyEvent.KEYCODE_DPAD_LEFT -> moveEditingWidgetBy(-1, 0)
+                    KeyEvent.KEYCODE_DPAD_RIGHT -> moveEditingWidgetBy(1, 0)
+                    KeyEvent.KEYCODE_DPAD_UP -> moveEditingWidgetBy(0, -1)
+                    KeyEvent.KEYCODE_DPAD_DOWN -> moveEditingWidgetBy(0, 1)
                 }
                 return true
             }
@@ -2921,19 +3172,12 @@ class MainActivity : Activity() {
             return
         }
 
-        val modeTag = when {
-            movingDockEntry != null -> "dock_move"
-            widgetEditMode == WidgetEditMode.MOVE -> "widget_move"
-            else -> "widget_resize"
-        }
+        val modeTag = if (movingDockEntry != null) "dock_move" else "widget_move"
 
-        val msg = when {
-            movingDockEntry != null -> getString(R.string.banner_dock_move)
-            widgetEditMode == WidgetEditMode.MOVE -> getString(R.string.banner_widget_move)
-            else -> {
-                val entry = widgetEntries.firstOrNull { it.id == editingWidgetId }
-                getString(R.string.banner_widget_resize_fmt, entry?.spanX ?: 1, entry?.spanY ?: 1)
-            }
+        val msg = if (movingDockEntry != null) {
+            getString(R.string.banner_dock_move)
+        } else {
+            getString(R.string.banner_widget_move)
         }
 
         if (editModeBanner.visibility == View.VISIBLE && editModeBanner.tag == modeTag) {
@@ -3013,11 +3257,11 @@ class MainActivity : Activity() {
         }
 
         val rowButtons = mutableListOf<TextView>()
-        if (editingWidgetId != null && widgetEditMode == WidgetEditMode.RESIZE) {
-            rowButtons.add(makePillButton("W-") { adjustEditingWidgetSpan(-1, 0) }.apply { tag = "edit_btn_w_minus" })
-            rowButtons.add(makePillButton("W+") { adjustEditingWidgetSpan(1, 0) }.apply { tag = "edit_btn_w_plus" })
-            rowButtons.add(makePillButton("H-") { adjustEditingWidgetSpan(0, -1) }.apply { tag = "edit_btn_h_minus" })
-            rowButtons.add(makePillButton("H+") { adjustEditingWidgetSpan(0, 1) }.apply { tag = "edit_btn_h_plus" })
+        if (editingWidgetId != null && widgetEditMode == WidgetEditMode.MOVE) {
+            rowButtons.add(makePillButton("◀") { moveEditingWidgetBy(-1, 0) }.apply { tag = "edit_btn_move_left" })
+            rowButtons.add(makePillButton("▲") { moveEditingWidgetBy(0, -1) }.apply { tag = "edit_btn_move_up" })
+            rowButtons.add(makePillButton("▼") { moveEditingWidgetBy(0, 1) }.apply { tag = "edit_btn_move_down" })
+            rowButtons.add(makePillButton("▶") { moveEditingWidgetBy(1, 0) }.apply { tag = "edit_btn_move_right" })
         }
 
         val doneBtn = makePillButton(getString(R.string.btn_done), isPrimary = true) {
@@ -3035,11 +3279,11 @@ class MainActivity : Activity() {
         }
         editModeBanner.addView(buttonsRow)
 
-        if (editingWidgetId != null && widgetEditMode == WidgetEditMode.RESIZE) {
-            val firstResizeBtn = rowButtons.firstOrNull()
-            firstResizeBtn?.post {
-                if (editingWidgetId != null && widgetEditMode == WidgetEditMode.RESIZE) {
-                    firstResizeBtn.requestFocus()
+        if (editingWidgetId != null && widgetEditMode == WidgetEditMode.MOVE) {
+            val firstMoveBtn = rowButtons.firstOrNull()
+            firstMoveBtn?.post {
+                if (editingWidgetId != null && widgetEditMode == WidgetEditMode.MOVE) {
+                    firstMoveBtn.requestFocus()
                 }
             }
         }

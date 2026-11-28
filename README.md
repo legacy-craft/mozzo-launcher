@@ -1,7 +1,5 @@
 # Mozzo Launcher
 
-🇬🇧 English | [🇮🇹 Italiano](README.it.md)
-
 ![License](https://img.shields.io/badge/License-GPLv3-blue.svg)
 ![Platform](https://img.shields.io/badge/Platform-Android%207.0%2B%20%26%20Android%20TV-green.svg)
 ![Development](https://img.shields.io/badge/Development-AI--Assisted-lightgrey.svg)
@@ -20,9 +18,9 @@ I designed the concept and workflow myself and built the codebase with the help 
 
 ## 🚀 Key Features
 
-- **GNOME 3-inspired dock & drawer:** Dock (`Left` / `Bottom` / `Right`) with auto-populated starter favorites, up to 8 pinned apps or system setting shortcuts, continuous **Move** mode, adjustable icon size (`48–80 dp`) and panel opacity (`0%–100%`).
+- **GNOME 3-inspired dock & drawer:** Dock (`Left` / `Bottom` / `Right`) with auto-populated starter favorites, up to 8 pinned apps or system setting shortcuts, continuous **Move** mode, adjustable icon size (`48–80 dp`) and panel opacity (`0%–100%`) across the Dock, App Drawer, and Settings panel.
 - **Essential App Drawer & Instant Search:** Compact single-line icon grid with live search across installed apps (including Leanback TV apps and web shortcuts) and 14 built-in Android system setting shortcuts.
-- **Ordered Widgets & Home Clock:** Optional centered 12h/24h Home Clock, 4-column portrait / 6-column landscape widget grid, grouped widget preview picker with cell sizes (`W × H`), and interactive **Move** / **Resize** controls (`W-`, `W+`, `H-`, `H+`, `Done` + D-Pad).
+- **Free-Grid Widgets & Home Clock:** Optional centered 12h/24h Home Clock, 4-column portrait / 6-column landscape widget grid sized automatically to each widget's declared dimensions, grouped widget preview picker (`W × H`), and 2D **Move** controls (`◀`, `▲`, `▼`, `▶`, `Done`, D-Pad arrows, or tap any empty grid slot).
 - **System Wallpaper & TV Fallback:** Uses Android's real system wallpaper on phones for seamless lockscreen and recents transitions, plus custom photo picker and a built-in wave wallpaper fallback for Android TV.
 - **Backup & Restore:** Export and import all launcher preferences, dock favorites, and web shortcuts to JSON (`mozzo-launcher-backup.json`), plus a direct shortcut to set Mozzo as your default Home app.
 - **Multilingual UI (8 languages):** English, Italiano, Español, Français, Deutsch, Português, Nederlands, 中文.
