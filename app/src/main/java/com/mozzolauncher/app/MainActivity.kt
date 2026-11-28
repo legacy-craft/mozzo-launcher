@@ -232,6 +232,16 @@ class MainActivity : Activity() {
         refreshClockFormat()
         focusDrawerButtonOnHome()
 
+        rootContainer.viewTreeObserver.addOnTouchModeChangeListener { isInTouchMode ->
+            if (!isInTouchMode && isHomeIdleForFocus()) {
+                val focused = currentFocus
+                if (focused == null || focused === rootContainer || !focused.isAttachedToWindow || !focused.isShown) {
+                    btnDrawerMozzo.requestFocus()
+                    focusDrawerButtonOnHome()
+                }
+            }
+        }
+
         rootContainer.post {
             if (isFinishing || isDestroyed) return@post
             applySavedWallpaper(forceSystemSync = !prefs.getBoolean("system_wallpaper_synced", false))
@@ -289,6 +299,12 @@ class MainActivity : Activity() {
         super.onWindowFocusChanged(hasFocus)
         if (hasFocus) {
             setupTransparentSystemBars()
+            if (isHomeIdleForFocus()) {
+                val focused = currentFocus
+                if (focused == null || focused === rootContainer || !focused.isAttachedToWindow || !focused.isShown) {
+                    focusDrawerButtonOnHome()
+                }
+            }
         }
     }
 
@@ -394,6 +410,26 @@ class MainActivity : Activity() {
                     if (handleEditModeDpad(event.keyCode)) {
                         return true
                     }
+                }
+            }
+        } else if (event.action == KeyEvent.ACTION_DOWN && isHomeIdleForFocus()) {
+            val isNavKey = event.keyCode == KeyEvent.KEYCODE_DPAD_UP ||
+                event.keyCode == KeyEvent.KEYCODE_DPAD_DOWN ||
+                event.keyCode == KeyEvent.KEYCODE_DPAD_LEFT ||
+                event.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT ||
+                event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER ||
+                event.keyCode == KeyEvent.KEYCODE_ENTER ||
+                event.keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER
+            if (isNavKey) {
+                val focused = currentFocus
+                val lostFocus = focused == null || focused === rootContainer || !focused.isAttachedToWindow || !focused.isShown
+                if (lostFocus) {
+                    if (!rootContainer.isInTouchMode && btnDrawerMozzo.requestFocus()) {
+                        return true
+                    }
+                    val handled = super.dispatchKeyEvent(event)
+                    focusDrawerButtonOnHome()
+                    return handled
                 }
             }
         }
@@ -516,30 +552,28 @@ class MainActivity : Activity() {
         )
     }
 
+    private fun isHomeIdleForFocus(): Boolean {
+        return movingDockEntry == null &&
+            editingWidgetId == null &&
+            drawerPanel.visibility != View.VISIBLE &&
+            settingsDialog?.isShowing != true &&
+            secondaryDialog?.isShowing != true
+    }
+
     private fun setHomeFocusBlocked(blocked: Boolean) {
         val mode = if (blocked) ViewGroup.FOCUS_BLOCK_DESCENDANTS else ViewGroup.FOCUS_AFTER_DESCENDANTS
         homeCenterColumn.descendantFocusability = mode
         dockContainer.descendantFocusability = mode
-        rootContainer.isFocusable = !blocked
+        rootContainer.isFocusable = false
     }
 
     private fun focusDrawerButtonOnHome() {
-        if (movingDockEntry != null || editingWidgetId != null) return
-        if (drawerPanel.visibility != View.VISIBLE &&
-            settingsDialog?.isShowing != true &&
-            secondaryDialog?.isShowing != true
-        ) {
-            btnDrawerMozzo.visibility = View.VISIBLE
-            btnDrawerMozzo.isFocusable = true
-            btnDrawerMozzo.post {
-                if (movingDockEntry == null &&
-                    editingWidgetId == null &&
-                    drawerPanel.visibility != View.VISIBLE &&
-                    settingsDialog?.isShowing != true &&
-                    secondaryDialog?.isShowing != true
-                ) {
-                    btnDrawerMozzo.requestFocus()
-                }
+        if (!isHomeIdleForFocus()) return
+        btnDrawerMozzo.visibility = View.VISIBLE
+        btnDrawerMozzo.isFocusable = true
+        btnDrawerMozzo.post {
+            if (isHomeIdleForFocus()) {
+                btnDrawerMozzo.requestFocus()
             }
         }
     }
@@ -1690,14 +1724,17 @@ class MainActivity : Activity() {
         val opRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         val opButtons = mutableListOf<Pair<Int, TextView>>()
 
-        val scroll = ScrollView(this)
+        val scroll = ScrollView(this).apply {
+            tag = "settings_panel_scroll"
+        }
         fun updateDialogBg(pct: Int) {
-            val effectivePct = pct.coerceAtLeast(82)
-            val alpha = (effectivePct * 255) / 100
+            val clamped = pct.coerceIn(0, 100)
+            val alpha = (clamped * 255) / 100
+            val strokeColor = if (clamped == 0) Color.TRANSPARENT else Color.argb(90, 148, 163, 184)
             scroll.background = GradientDrawable().apply {
                 cornerRadius = dp(24).toFloat()
                 setColor(Color.argb(alpha, 9, 13, 20))
-                setStroke(dp(1), Color.argb(90, 148, 163, 184))
+                setStroke(dp(1), strokeColor)
             }
         }
 
@@ -1732,6 +1769,7 @@ class MainActivity : Activity() {
                     refreshOpButtons()
                     prefs.edit().putInt("panel_opacity_pct", op).commit()
                     updateDialogBg(op)
+                    applyPanelOpacity(op)
                 }
             }
             opButtons.add(op to btn)
@@ -2189,21 +2227,22 @@ class MainActivity : Activity() {
         val fillColor = Color.argb(alpha, 9, 13, 20)
         val strokeColor = if (percent == 0) Color.TRANSPARENT else Color.argb(64, 148, 163, 184)
         val side = prefs.getString("dock_side", "left") ?: "left"
-        val r = dp(24).toFloat()
+        val dockR = dp(16).toFloat()
+        val drawerR = dp(24).toFloat()
 
         dockContainer.background = GradientDrawable().apply {
             setColor(fillColor)
             setStroke(dp(1), strokeColor)
             cornerRadii = when (side) {
-                "right" -> floatArrayOf(r, r, 0f, 0f, 0f, 0f, r, r)
-                "bottom" -> floatArrayOf(r, r, r, r, 0f, 0f, 0f, 0f)
-                else -> floatArrayOf(0f, 0f, r, r, r, r, 0f, 0f)
+                "right" -> floatArrayOf(dockR, dockR, 0f, 0f, 0f, 0f, dockR, dockR)
+                "bottom" -> floatArrayOf(dockR, dockR, dockR, dockR, 0f, 0f, 0f, 0f)
+                else -> floatArrayOf(0f, 0f, dockR, dockR, dockR, dockR, 0f, 0f)
             }
         }
         drawerPanel.background = GradientDrawable().apply {
             setColor(fillColor)
             setStroke(dp(1), strokeColor)
-            cornerRadius = r
+            cornerRadius = drawerR
         }
     }
 
@@ -2216,7 +2255,7 @@ class MainActivity : Activity() {
         dockLp.marginEnd = 0
         if (isBottom) {
             dockContainer.orientation = LinearLayout.HORIZONTAL
-            dockContainer.setPadding(dp(8), dp(5), dp(8), dp(6) + insetBottom)
+            dockContainer.setPadding(dp(8), dp(8), dp(8), dp(8) + insetBottom)
             dockLp.width = ViewGroup.LayoutParams.WRAP_CONTENT
             dockLp.height = ViewGroup.LayoutParams.WRAP_CONTENT
             dockLp.gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
@@ -2229,10 +2268,10 @@ class MainActivity : Activity() {
         } else {
             dockContainer.orientation = LinearLayout.VERTICAL
             dockContainer.setPadding(
-                dp(5) + (if (isRight) 0 else insetLeft),
-                dp(6),
-                dp(5) + (if (isRight) insetRight else 0),
-                dp(6)
+                dp(8) + (if (isRight) 0 else insetLeft),
+                dp(8),
+                dp(8) + (if (isRight) insetRight else 0),
+                dp(8)
             )
             dockLp.width = ViewGroup.LayoutParams.WRAP_CONTENT
             dockLp.height = ViewGroup.LayoutParams.WRAP_CONTENT
@@ -2305,7 +2344,7 @@ class MainActivity : Activity() {
             homeLp.width = (screenW - sPad * 2 - insetLeft - insetRight).coerceAtLeast(dp(180))
             homeCenterColumn.gravity = Gravity.CENTER_HORIZONTAL or Gravity.TOP
             homeLp.gravity = Gravity.CENTER_HORIZONTAL or Gravity.TOP
-            val bottomDockReserve = dp(iconSizeDp + 18) + insetBottom
+            val bottomDockReserve = dp(iconSizeDp + 22) + insetBottom
             homeLp.setMargins(
                 sPad + insetLeft,
                 topClockSpace,
@@ -2313,7 +2352,7 @@ class MainActivity : Activity() {
                 bottomDockReserve
             )
         } else {
-            val dockSpace = dp(iconSizeDp + 18)
+            val dockSpace = dp(iconSizeDp + 22)
             val outerEdge = dp(12)
             val oppGravity = if (isRight) Gravity.START else Gravity.END
 
@@ -2329,7 +2368,7 @@ class MainActivity : Activity() {
         drawerPanel.layoutParams = drawerLp
 
         val bannerLp = editModeBanner.layoutParams as FrameLayout.LayoutParams
-        bannerLp.bottomMargin = if (isBottom) dp(iconSizeDp + 28) + insetBottom else dp(20) + insetBottom
+        bannerLp.bottomMargin = if (isBottom) dp(iconSizeDp + 30) + insetBottom else dp(20) + insetBottom
         editModeBanner.layoutParams = bannerLp
 
         appsGridView.columnWidth = dp(iconSizeDp + 16)

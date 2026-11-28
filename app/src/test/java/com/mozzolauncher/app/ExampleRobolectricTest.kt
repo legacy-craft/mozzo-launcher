@@ -929,4 +929,98 @@ class ExampleRobolectricTest {
     Shadows.shadowOf(Looper.getMainLooper()).idle()
     assertEquals(View.GONE, banner.visibility)
   }
+
+  @Test
+  fun `dock uses uniform 8dp padding and 16dp concentric outer corner radius`() {
+    val controller = Robolectric.buildActivity(MainActivity::class.java).setup()
+    val activity = controller.get()
+    activity.resources.displayMetrics.density = 2f
+    Shadows.shadowOf(Looper.getMainLooper()).idle()
+
+    val root = activity.findViewById<FrameLayout>(R.id.rootContainer)
+    val zeroInsets = WindowInsetsCompat.Builder()
+      .setInsets(WindowInsetsCompat.Type.systemBars(), Insets.NONE)
+      .build()
+    ViewCompat.dispatchApplyWindowInsets(root, zeroInsets)
+    Shadows.shadowOf(Looper.getMainLooper()).idle()
+
+    val dock = activity.findViewById<LinearLayout>(R.id.dockContainer)
+    assertEquals(16, dock.paddingLeft)
+    assertEquals(16, dock.paddingTop)
+    assertEquals(16, dock.paddingRight)
+    assertEquals(16, dock.paddingBottom)
+
+    val bg = dock.background as android.graphics.drawable.GradientDrawable
+    assertEquals(32f, bg.cornerRadii!![2], 0.5f)
+  }
+
+  @Test
+  fun `settings panel background opacity matches 0 25 50 75 and 100 percent presets`() {
+    val controller = Robolectric.buildActivity(MainActivity::class.java).setup()
+    val activity = controller.get()
+    Shadows.shadowOf(Looper.getMainLooper()).idle()
+
+    activity.onKeyDown(android.view.KeyEvent.KEYCODE_MENU, null)
+    Shadows.shadowOf(Looper.getMainLooper()).idle()
+
+    val dialog = ShadowAlertDialog.getLatestAlertDialog()
+    val scroll = dialog.window!!.decorView.findViewWithTag<View>("settings_panel_scroll")
+    val dock = activity.findViewById<LinearLayout>(R.id.dockContainer)
+
+    val expectedAlphas = listOf(
+      "0%" to 0,
+      "25%" to 63,
+      "50%" to 127,
+      "75%" to 191,
+      "100%" to 255
+    )
+
+    fun findTextView(view: View, target: String): android.widget.TextView? {
+      if (view is android.widget.TextView && view.text?.toString() == target) return view
+      if (view is ViewGroup) {
+        for (i in 0 until view.childCount) {
+          findTextView(view.getChildAt(i), target)?.let { return it }
+        }
+      }
+      return null
+    }
+
+    for ((label, expectedAlpha) in expectedAlphas) {
+      val btn = findTextView(scroll, label)!!
+      btn.performClick()
+      Shadows.shadowOf(Looper.getMainLooper()).idle()
+
+      val settingsBg = scroll.background as android.graphics.drawable.GradientDrawable
+      val dockBg = dock.background as android.graphics.drawable.GradientDrawable
+      val settingsAlpha = android.graphics.Color.alpha(settingsBg.color!!.defaultColor)
+      val dockAlpha = android.graphics.Color.alpha(dockBg.color!!.defaultColor)
+      assertEquals("Settings alpha for $label", expectedAlpha, settingsAlpha)
+      assertEquals("Dock alpha for $label", expectedAlpha, dockAlpha)
+    }
+
+    dialog.dismiss()
+    Shadows.shadowOf(Looper.getMainLooper()).idle()
+  }
+
+  @Test
+  fun `dpad press after lost home focus restores focus to 9-dots drawer button`() {
+    val controller = Robolectric.buildActivity(MainActivity::class.java).setup()
+    val activity = controller.get()
+    Shadows.shadowOf(Looper.getMainLooper()).idle()
+
+    val root = activity.findViewById<FrameLayout>(R.id.rootContainer)
+    val drawerBtn = activity.findViewById<ImageButton>(R.id.btnDrawerMozzo)
+    assertFalse(root.isFocusable)
+
+    drawerBtn.clearFocus()
+    Shadows.shadowOf(Looper.getMainLooper()).idle()
+    assertNull(activity.currentFocus)
+
+    val handled = activity.dispatchKeyEvent(
+      android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_DPAD_RIGHT)
+    )
+    Shadows.shadowOf(Looper.getMainLooper()).idle()
+    assertTrue(handled)
+    assertTrue(drawerBtn.hasFocus())
+  }
 }

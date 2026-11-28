@@ -3,10 +3,10 @@
 [🇬🇧 English](README.md) | 🇮🇹 Italiano
 
 ![Licenza](https://img.shields.io/badge/License-GPLv3-blue.svg)
-![Piattaforma](https://img.shields.io/badge/Platform-Android%20%26%20Android%20TV-green.svg)
+![Piattaforma](https://img.shields.io/badge/Platform-Android%207.0%2B%20%26%20Android%20TV-green.svg)
 ![Sviluppo](https://img.shields.io/badge/Development-AI--Assisted-lightgrey.svg)
 
-Un launcher Android veloce e minimale progettato sia per **smartphone che per Android TV**, ispirato al flusso di lavoro pulito di **GNOME 3**.
+Un launcher Android veloce e minimale progettato sia per **smartphone che per Android TV** (da Android 7.0 Nougat / API 24 in poi), ispirato al flusso di lavoro pulito di **GNOME 3**.
 
 ---
 
@@ -34,19 +34,21 @@ Ho progettato personalmente idea e flusso di utilizzo e sviluppato il codice con
 
 ### Smartphone
 <p align="center">
-  <img src="screenshots/1.png" alt="Mozzo Launcher Smartphone Home" width="32%" />
-  <img src="screenshots/2.png" alt="Mozzo Launcher Smartphone Drawer App" width="32%" />
+  <img src="screenshots/1.png" alt="Mozzo Launcher Smartphone Home e Widget" width="32%" />
+  <img src="screenshots/2.png" alt="Mozzo Launcher Smartphone Ricerca e Drawer" width="32%" />
 </p>
 
 ### Android TV
 <p align="center">
-  <img src="screenshots/3.png" alt="Mozzo Launcher Android TV Home" width="48%" />
-  <img src="screenshots/4.png" alt="Mozzo Launcher Android TV Impostazioni" width="48%" />
+  <img src="screenshots/3.png" alt="Mozzo Launcher Android TV Impostazioni e Dock in basso" width="48%" />
+  <img src="screenshots/4.png" alt="Mozzo Launcher Android TV Home e Dock a sinistra" width="48%" />
 </p>
 
 ---
 
 ## 📥 Download e Installazione
+
+> **Requisito minimo:** Android **7.0 (Nougat, API 24)** o superiore.
 
 ### Smartphone
 
